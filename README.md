@@ -1,6 +1,7 @@
 # Shoot
 
-A two-player, Asteroids-style ship duel written in Python with pygame.
+A two-player, Asteroids-style ship duel written in Python with pygame (the pygame-ce fork, which has ready-made
+Windows builds for new Python versions).
 
 ## Setup (Windows)
 
