@@ -1,0 +1,178 @@
+"""Main game loop: reads the keyboard, steps the world, and draws it."""
+
+import dataclasses
+import random
+
+import pygame
+from pygame.math import Vector2
+
+from . import settings
+from .entities import Bullet, Ship, ShipInput
+
+
+class Particle:
+    def __init__(self, pos: Vector2, color):
+        self.pos = Vector2(pos)
+        self.vel = Vector2(random.uniform(40, 220), 0).rotate(random.uniform(0, 360))
+        self.life = random.uniform(0.4, 1.0)
+        self.color = color
+
+    def update(self, dt: float) -> None:
+        self.pos += self.vel * dt
+        self.life -= dt
+
+    def draw(self, surface: pygame.Surface) -> None:
+        pygame.draw.circle(surface, self.color, self.pos, 1.5)
+
+
+class Game:
+    def __init__(self):
+        pygame.init()
+        pygame.display.set_caption("Shoot")
+        self.screen = pygame.display.set_mode((settings.SCREEN_WIDTH, settings.SCREEN_HEIGHT))
+        self.clock = pygame.time.Clock()
+        self.font = pygame.font.Font(None, 28)
+        self.big_font = pygame.font.Font(None, 72)
+        self.stars = [
+            (random.randrange(settings.SCREEN_WIDTH), random.randrange(settings.SCREEN_HEIGHT),
+             random.choice((60, 100, 160)))
+            for _ in range(settings.STAR_COUNT)
+        ]
+        w, h = settings.SCREEN_WIDTH, settings.SCREEN_HEIGHT
+        self.ships = [
+            Ship(settings.DEFAULT_SHIP, settings.PLAYER_COLORS[0], Vector2(w * 0.2, h / 2), 0),
+            Ship(settings.DEFAULT_SHIP, settings.PLAYER_COLORS[1], Vector2(w * 0.8, h / 2), 180),
+        ]
+        self.wins = [0, 0]
+        self.new_round()
+
+    def new_round(self) -> None:
+        for ship in self.ships:
+            ship.reset()
+        self.bullets: list[Bullet] = []
+        self.particles: list[Particle] = []
+        self.winner: int | None = None  # index of winning player, -1 for a draw
+        self.round_over_time = 0.0
+
+    def read_inputs(self) -> list[ShipInput]:
+        keys = pygame.key.get_pressed()
+        inputs = []
+        for c in settings.PLAYER_CONTROLS:
+            inputs.append(ShipInput(
+                turn=int(keys[c.right]) - int(keys[c.left]),
+                thrust=keys[c.thrust],
+                fire=keys[c.fire],
+            ))
+        return inputs
+
+    def toggle_momentum(self) -> None:
+        for ship in self.ships:
+            ship.type = dataclasses.replace(ship.type, momentum=not ship.type.momentum)
+
+    def handle_events(self) -> bool:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return False
+                if event.key == pygame.K_F1:
+                    settings.WRAPAROUND = not settings.WRAPAROUND
+                elif event.key == pygame.K_F2:
+                    self.toggle_momentum()
+                elif event.key == pygame.K_r and self.winner is not None:
+                    self.new_round()
+        return True
+
+    def update(self, dt: float) -> None:
+        for ship, ctrl in zip(self.ships, self.read_inputs()):
+            if ship.alive:
+                self.bullets.extend(ship.update(dt, ctrl))
+
+        for bullet in self.bullets:
+            bullet.update(dt)
+            for ship in self.ships:
+                if ship is bullet.owner or not ship.alive or not bullet.alive:
+                    continue
+                if ship.pos.distance_to(bullet.pos) < ship.type.radius + Bullet.RADIUS:
+                    bullet.alive = False
+                    ship.take_hit(bullet.owner.type.bullet_damage)
+                    if not ship.alive:
+                        self.explode(ship)
+        self.bullets = [b for b in self.bullets if b.alive]
+
+        a, b = self.ships
+        if a.alive and b.alive and a.pos.distance_to(b.pos) < a.type.radius + b.type.radius:
+            # Ramming hurts both ships and knocks them apart.
+            for ship in (a, b):
+                ship.take_hit(2)
+            push = (a.pos - b.pos)
+            if push.length() == 0:
+                push = Vector2(1, 0)
+            push.scale_to_length(150)
+            a.vel += push
+            b.vel -= push
+            for ship in (a, b):
+                if not ship.alive:
+                    self.explode(ship)
+
+        for p in self.particles:
+            p.update(dt)
+        self.particles = [p for p in self.particles if p.life > 0]
+
+        if self.winner is None:
+            alive = [i for i, s in enumerate(self.ships) if s.alive]
+            if len(alive) < 2:
+                self.winner = alive[0] if alive else -1
+                if self.winner >= 0:
+                    self.wins[self.winner] += 1
+
+    def explode(self, ship: Ship) -> None:
+        self.particles.extend(Particle(ship.pos, ship.color) for _ in range(60))
+
+    def draw_hud(self) -> None:
+        for i, ship in enumerate(self.ships):
+            color = settings.PLAYER_COLORS[i]
+            x = 20 if i == 0 else settings.SCREEN_WIDTH - 220
+            label = self.font.render(f"{settings.PLAYER_NAMES[i]}  wins: {self.wins[i]}", True, color)
+            self.screen.blit(label, (x, 16))
+            bar_w = 200
+            pygame.draw.rect(self.screen, color, (x, 44, bar_w, 10), width=1)
+            fill = bar_w * ship.hp / ship.type.hit_points
+            pygame.draw.rect(self.screen, color, (x, 44, fill, 10))
+
+        mode = (f"F1 wrap: {'on' if settings.WRAPAROUND else 'off'}   "
+                f"F2 momentum: {'on' if self.ships[0].type.momentum else 'off'}   Esc quit")
+        text = self.font.render(mode, True, (110, 110, 130))
+        self.screen.blit(text, text.get_rect(midbottom=(settings.SCREEN_WIDTH / 2, settings.SCREEN_HEIGHT - 10)))
+
+        if self.winner is not None:
+            msg = "Draw!" if self.winner < 0 else f"{settings.PLAYER_NAMES[self.winner]} wins!"
+            color = (230, 230, 230) if self.winner < 0 else settings.PLAYER_COLORS[self.winner]
+            title = self.big_font.render(msg, True, color)
+            center = (settings.SCREEN_WIDTH / 2, settings.SCREEN_HEIGHT / 2)
+            self.screen.blit(title, title.get_rect(center=center))
+            hint = self.font.render("Press R to play again", True, (200, 200, 200))
+            self.screen.blit(hint, hint.get_rect(center=(center[0], center[1] + 50)))
+
+    def draw(self) -> None:
+        self.screen.fill(settings.BACKGROUND)
+        for x, y, c in self.stars:
+            self.screen.set_at((x, y), (c, c, c))
+        for bullet in self.bullets:
+            bullet.draw(self.screen)
+        for ship in self.ships:
+            ship.draw(self.screen)
+        for p in self.particles:
+            p.draw(self.screen)
+        self.draw_hud()
+        pygame.display.flip()
+
+    def run(self) -> None:
+        running = True
+        while running:
+            dt = min(self.clock.tick(settings.FPS) / 1000.0, 0.05)
+            running = self.handle_events()
+            self.update(dt)
+            self.draw()
+        pygame.quit()
