@@ -1,12 +1,12 @@
 """Main game loop: reads the keyboard, steps the world, and draws it."""
 
-import dataclasses
 import random
 
 import pygame
 from pygame.math import Vector2
 
 from . import settings
+from .config_screen import ConfigScreen, save_ship_types
 from .entities import Bullet, Ship, ShipInput
 
 
@@ -45,6 +45,21 @@ class Game:
         ]
         self.wins = [0, 0]
         self.new_round()
+        self.open_setup()
+
+    def open_setup(self) -> None:
+        self.setup: ConfigScreen | None = ConfigScreen(self.font, self.big_font)
+        pygame.key.set_repeat(300, 60)
+
+    def close_setup(self) -> None:
+        types = self.setup.ship_types()
+        save_ship_types(types)
+        for ship, ship_type in zip(self.ships, types):
+            ship.type = ship_type
+        self.setup = None
+        pygame.key.set_repeat()
+        self.wins = [0, 0]
+        self.new_round()
 
     def new_round(self) -> None:
         for ship in self.ships:
@@ -65,10 +80,6 @@ class Game:
             ))
         return inputs
 
-    def toggle_momentum(self) -> None:
-        for ship in self.ships:
-            ship.type = dataclasses.replace(ship.type, momentum=not ship.type.momentum)
-
     def handle_events(self) -> bool:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -76,12 +87,16 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     return False
-                if event.key == pygame.K_F1:
+                if self.setup is not None:
+                    self.setup.handle_key(event.key)
+                    if self.setup.done:
+                        self.close_setup()
+                elif event.key == pygame.K_F1:
                     settings.WRAPAROUND = not settings.WRAPAROUND
-                elif event.key == pygame.K_F2:
-                    self.toggle_momentum()
                 elif event.key == pygame.K_r and self.winner is not None:
                     self.new_round()
+                elif event.key == pygame.K_c and self.winner is not None:
+                    self.open_setup()
         return True
 
     def update(self, dt: float) -> None:
@@ -141,8 +156,7 @@ class Game:
             fill = bar_w * ship.hp / ship.type.hit_points
             pygame.draw.rect(self.screen, color, (x, 44, fill, 10))
 
-        mode = (f"F1 wrap: {'on' if settings.WRAPAROUND else 'off'}   "
-                f"F2 momentum: {'on' if self.ships[0].type.momentum else 'off'}   Esc quit")
+        mode = f"F1 wrap: {'on' if settings.WRAPAROUND else 'off'}   Esc quit"
         text = self.font.render(mode, True, (110, 110, 130))
         self.screen.blit(text, text.get_rect(midbottom=(settings.SCREEN_WIDTH / 2, settings.SCREEN_HEIGHT - 10)))
 
@@ -152,13 +166,17 @@ class Game:
             title = self.big_font.render(msg, True, color)
             center = (settings.SCREEN_WIDTH / 2, settings.SCREEN_HEIGHT / 2)
             self.screen.blit(title, title.get_rect(center=center))
-            hint = self.font.render("Press R to play again", True, (200, 200, 200))
+            hint = self.font.render("R: play again    C: change ships", True, (200, 200, 200))
             self.screen.blit(hint, hint.get_rect(center=(center[0], center[1] + 50)))
 
     def draw(self) -> None:
         self.screen.fill(settings.BACKGROUND)
         for x, y, c in self.stars:
             self.screen.set_at((x, y), (c, c, c))
+        if self.setup is not None:
+            self.setup.draw(self.screen)
+            pygame.display.flip()
+            return
         for bullet in self.bullets:
             bullet.draw(self.screen)
         for ship in self.ships:
@@ -173,6 +191,7 @@ class Game:
         while running:
             dt = min(self.clock.tick(settings.FPS) / 1000.0, 0.05)
             running = self.handle_events()
-            self.update(dt)
+            if self.setup is None:
+                self.update(dt)
             self.draw()
         pygame.quit()

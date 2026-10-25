@@ -1,7 +1,6 @@
 # Shoot
 
-A two-player, Asteroids-style ship duel written in Python with pygame (the pygame-ce fork, which has ready-made
-Windows builds for new Python versions).
+A two-player, Asteroids-style ship duel written in Python with pygame.
 
 ## Setup (Windows)
 
@@ -12,6 +11,20 @@ pip install -r requirements.txt
 python main.py
 ```
 
+## Ship setup
+
+The game opens on a setup screen with one panel per player. Each player tunes their own ship:
+hit points, speed, turn speed, bullet speed, fire rate and momentum.
+
+| Action       | Blue    | Red           |
+|--------------|---------|---------------|
+| Choose stat  | W / S   | Up / Down     |
+| Change value | A / D   | Left / Right  |
+| Ready        | Space   | Enter         |
+
+The match starts when both players are ready. Choices are saved to `players.json` and
+loaded next time.
+
 ## Controls
 
 | Action | Blue (left) | Red (right) |
@@ -21,13 +34,13 @@ python main.py
 | Fire   | Space       | Enter        |
 
 - **F1** toggles screen wraparound
-- **F2** toggles momentum (drift vs. direct movement)
-- **R** starts a new round after someone wins
+- **R** starts a new round after someone wins, **C** goes back to ship setup
 - **Esc** quits
 
 Ramming the other ship damages both of you.
 
 ## Tuning
 
-Ship stats (thrust, turn speed, fire rate, bullet speed, hit points, momentum) are in
-`DEFAULT_SHIP` in `shoot/settings.py`. Screen size and wraparound default are there too.
+Default ship stats are in `DEFAULT_SHIP` in `shoot/settings.py`, and the setup screen's
+ranges and step sizes are in `STATS` in `shoot/config_screen.py`. Screen size and the
+wraparound default are in `shoot/settings.py`. Delete `players.json` to reset both ships.

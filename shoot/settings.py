@@ -52,13 +52,14 @@ DEFAULT_SHIP = ShipType(
 class Controls:
     left: int
     right: int
-    thrust: int
+    thrust: int  # also "up" in menus
+    down: int    # menus only
     fire: int
 
 
 PLAYER_CONTROLS = [
-    Controls(left=pygame.K_a, right=pygame.K_d, thrust=pygame.K_w, fire=pygame.K_SPACE),
-    Controls(left=pygame.K_LEFT, right=pygame.K_RIGHT, thrust=pygame.K_UP, fire=pygame.K_RETURN),
+    Controls(left=pygame.K_a, right=pygame.K_d, thrust=pygame.K_w, down=pygame.K_s, fire=pygame.K_SPACE),
+    Controls(left=pygame.K_LEFT, right=pygame.K_RIGHT, thrust=pygame.K_UP, down=pygame.K_DOWN, fire=pygame.K_RETURN),
 ]
 
 PLAYER_COLORS = [(80, 200, 255), (255, 120, 80)]
