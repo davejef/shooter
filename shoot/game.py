@@ -145,16 +145,27 @@ class Game:
     def explode(self, ship: Ship) -> None:
         self.particles.extend(Particle(ship.pos, ship.color) for _ in range(60))
 
+    def draw_health_bar(self, x: int, y: int, ship: Ship, color) -> None:
+        """Bar split into one segment per hit point, with a tick between each segment."""
+        bar_w, bar_h = 200, 12
+        max_hp = ship.type.hit_points
+        seg_w = bar_w / max_hp
+        pygame.draw.rect(self.screen, color, (x, y, round(seg_w * ship.hp), bar_h))
+        pygame.draw.rect(self.screen, color, (x, y, bar_w, bar_h), width=1)
+        dim = tuple(c // 2 for c in color)
+        for k in range(1, max_hp):
+            tx = x + round(k * seg_w)
+            # Dark gaps cut the filled part; dim ticks mark the lost points.
+            tick_color = settings.BACKGROUND if k < ship.hp else dim
+            pygame.draw.line(self.screen, tick_color, (tx, y + 1), (tx, y + bar_h - 2))
+
     def draw_hud(self) -> None:
         for i, ship in enumerate(self.ships):
             color = settings.PLAYER_COLORS[i]
             x = 20 if i == 0 else settings.SCREEN_WIDTH - 220
             label = self.font.render(f"{settings.PLAYER_NAMES[i]}  wins: {self.wins[i]}", True, color)
             self.screen.blit(label, (x, 16))
-            bar_w = 200
-            pygame.draw.rect(self.screen, color, (x, 44, bar_w, 10), width=1)
-            fill = bar_w * ship.hp / ship.type.hit_points
-            pygame.draw.rect(self.screen, color, (x, 44, fill, 10))
+            self.draw_health_bar(x, 44, ship, color)
 
         mode = f"F1 wrap: {'on' if settings.WRAPAROUND else 'off'}   Esc quit"
         text = self.font.render(mode, True, (110, 110, 130))
