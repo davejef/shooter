@@ -6,8 +6,9 @@ import pygame
 from pygame.math import Vector2
 
 from . import settings
+from .bullet import Bullet
 from .config_screen import ConfigScreen, save_ship_types
-from .entities import Bullet, Ship, ShipInput
+from .ship import Ship, ShipInput
 
 
 class Particle:

@@ -1,4 +1,4 @@
-"""Ships and bullets. These know nothing about the keyboard: they act on a ShipInput,
+"""Player ships. A ship knows nothing about the keyboard: it acts on a ShipInput,
 so the same code can later be driven by a network peer or an AI."""
 
 from dataclasses import dataclass
@@ -7,6 +7,7 @@ import pygame
 from pygame.math import Vector2
 
 from . import settings
+from .bullet import Bullet
 from .settings import ShipType
 
 # Ship outline in local space, nose pointing along +x.
@@ -36,32 +37,6 @@ def wrap_or_clamp(pos: Vector2, vel: Vector2, radius: float) -> None:
         pos.y, vel.y = radius, abs(vel.y) * 0.5
     elif pos.y > h - radius:
         pos.y, vel.y = h - radius, -abs(vel.y) * 0.5
-
-
-class Bullet:
-    RADIUS = 2.5
-
-    def __init__(self, owner: "Ship", pos: Vector2, vel: Vector2):
-        self.owner = owner
-        self.pos = Vector2(pos)
-        self.vel = Vector2(vel)
-        self.age = 0.0
-        self.alive = True
-
-    def update(self, dt: float) -> None:
-        self.pos += self.vel * dt
-        self.age += dt
-        if self.age >= self.owner.type.bullet_lifetime:
-            self.alive = False
-            return
-        if settings.WRAPAROUND:
-            self.pos.x %= settings.SCREEN_WIDTH
-            self.pos.y %= settings.SCREEN_HEIGHT
-        elif not (0 <= self.pos.x <= settings.SCREEN_WIDTH and 0 <= self.pos.y <= settings.SCREEN_HEIGHT):
-            self.alive = False
-
-    def draw(self, surface: pygame.Surface) -> None:
-        pygame.draw.circle(surface, self.owner.color, self.pos, self.RADIUS)
 
 
 class Ship:
