@@ -1,12 +1,14 @@
-"""Pre-match setup screen: each player tunes their own ship with their own keys.
+"""Pre-match setup screen: each player buys their ship's stats from a point budget.
 
-Up/down (thrust/down key) picks a stat, left/right changes it, fire toggles ready.
+Every stat has levels 0-10 and each level costs one point. Both players get the same
+budget, so a ship can be great at a few things or decent at everything, but not both.
+Up/down (thrust/down key) picks a row, left/right sells or buys a level, fire toggles ready.
 The match starts when both players are ready. Choices are saved to players.json.
 """
 
 import dataclasses
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -17,16 +19,22 @@ from .settings import ShipType
 
 SAVE_FILE = Path(__file__).resolve().parent.parent / "players.json"
 
+BUDGET = 25       # points per player
+MAX_LEVEL = 10    # highest level for any one stat
+START_LEVEL = 5   # a fresh ship puts 5 points in every stat
+
 
 @dataclass(frozen=True)
 class Stat:
+    key: str
     label: str
-    min: float
-    max: float
-    step: float
-    get: Callable[[ShipType], float]
-    set: Callable[[ShipType, float], ShipType]
-    fmt: Callable[[float], str] = lambda v: f"{v:g}"
+    lo: float  # value at level 0
+    hi: float  # value at MAX_LEVEL
+    apply: Callable[[ShipType, float], ShipType]
+    fmt: Callable[[float], str]
+
+    def value(self, level: int) -> float:
+        return self.lo + (self.hi - self.lo) * level / MAX_LEVEL
 
 
 def _set_speed(t: ShipType, v: float) -> ShipType:
@@ -34,59 +42,76 @@ def _set_speed(t: ShipType, v: float) -> ShipType:
     return dataclasses.replace(t, max_speed=v, thrust=v * 0.75)
 
 
+# Level 5 of each stat matches DEFAULT_SHIP.
 STATS = [
-    Stat("Hit points", 1, 50, 1,
-         lambda t: t.hit_points,
-         lambda t, v: dataclasses.replace(t, hit_points=int(v)),
-         lambda v: f"{int(v)}"),
-    Stat("Speed", 100, 800, 25,
-         lambda t: t.max_speed, _set_speed,
-         lambda v: f"{int(v)}"),
-    Stat("Turn speed", 60, 480, 20,
-         lambda t: t.turn_speed,
-         lambda t, v: dataclasses.replace(t, turn_speed=v),
-         lambda v: f"{int(v)}°/s"),
-    Stat("Bullet speed", 200, 1200, 50,
-         lambda t: t.bullet_speed,
-         lambda t, v: dataclasses.replace(t, bullet_speed=v),
-         lambda v: f"{int(v)}"),
-    Stat("Fire rate", 1, 15, 0.5,
-         lambda t: round(1 / t.fire_cooldown, 1),
-         lambda t, v: dataclasses.replace(t, fire_cooldown=1 / v),
-         lambda v: f"{v:g} shots/s"),
-    Stat("Momentum", 0, 1, 1,
-         lambda t: int(t.momentum),
-         lambda t, v: dataclasses.replace(t, momentum=bool(v)),
-         lambda v: "on" if v else "off"),
+    Stat("hit_points", "Hit points", 5, 15,
+         lambda t, v: dataclasses.replace(t, hit_points=round(v)), lambda v: f"{round(v)}"),
+    Stat("speed", "Speed", 200, 600, _set_speed, lambda v: f"{round(v)}"),
+    Stat("turn_speed", "Turn speed", 120, 320,
+         lambda t, v: dataclasses.replace(t, turn_speed=v), lambda v: f"{round(v)}°/s"),
+    Stat("bullet_speed", "Bullet speed", 300, 800,
+         lambda t, v: dataclasses.replace(t, bullet_speed=v), lambda v: f"{round(v)}"),
+    Stat("fire_rate", "Fire rate", 2, 6,
+         lambda t, v: dataclasses.replace(t, fire_cooldown=1 / v), lambda v: f"{v:.1f} shots/s"),
 ]
+MOMENTUM_ROW = len(STATS)  # momentum is a free on/off choice after the stats
 
-SAVED_FIELDS = ["hit_points", "max_speed", "thrust", "turn_speed", "bullet_speed", "fire_cooldown", "momentum"]
+
+@dataclass
+class Loadout:
+    levels: dict[str, int] = field(default_factory=lambda: {s.key: START_LEVEL for s in STATS})
+    momentum: bool = True
+
+    @property
+    def points_left(self) -> int:
+        return BUDGET - sum(self.levels.values())
+
+    def ship_type(self) -> ShipType:
+        t = settings.DEFAULT_SHIP
+        for stat in STATS:
+            t = stat.apply(t, stat.value(self.levels[stat.key]))
+        return dataclasses.replace(t, momentum=self.momentum)
+
+    def to_dict(self) -> dict:
+        return {"levels": dict(self.levels), "momentum": self.momentum}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Loadout":
+        """Build a loadout, raising ValueError unless it is within the rules."""
+        try:
+            levels = {s.key: int(data["levels"][s.key]) for s in STATS}
+            momentum = bool(data["momentum"])
+        except (KeyError, TypeError, ValueError) as e:
+            raise ValueError(f"bad loadout: {e}") from None
+        loadout = cls(levels, momentum)
+        if any(not 0 <= v <= MAX_LEVEL for v in levels.values()) or loadout.points_left < 0:
+            raise ValueError("loadout breaks the point-buy rules")
+        return loadout
 
 
-def load_ship_types() -> list[ShipType]:
-    types = [settings.DEFAULT_SHIP, settings.DEFAULT_SHIP]
+def load_loadouts() -> list[Loadout]:
+    loadouts = [Loadout(), Loadout()]
     try:
         data = json.loads(SAVE_FILE.read_text())
-        types = [dataclasses.replace(settings.DEFAULT_SHIP, **{k: d[k] for k in SAVED_FIELDS if k in d})
-                 for d in data[:2]]
+        for i, d in enumerate(data[:2]):
+            loadouts[i] = Loadout.from_dict(d)
     except (OSError, ValueError, TypeError, KeyError):
-        pass
-    return types
+        pass  # missing, old-format or tampered file: use fresh ships
+    return loadouts
 
 
-def save_ship_types(types: list[ShipType]) -> None:
-    data = [{k: getattr(t, k) for k in SAVED_FIELDS} for t in types]
+def save_loadouts(loadouts: list[Loadout]) -> None:
     try:
-        SAVE_FILE.write_text(json.dumps(data, indent=2))
+        SAVE_FILE.write_text(json.dumps([l.to_dict() for l in loadouts], indent=2))
     except OSError:
         pass
 
 
 class PlayerPanel:
-    def __init__(self, index: int, ship_type: ShipType):
+    def __init__(self, index: int, loadout: Loadout):
         self.index = index
         self.controls = settings.PLAYER_CONTROLS[index]
-        self.ship_type = ship_type
+        self.loadout = loadout
         self.row = 0
         self.ready = False
         self.remote = False  # True when this panel is driven from the other PC
@@ -98,39 +123,55 @@ class PlayerPanel:
             return
         if self.ready:
             return
+        rows = len(STATS) + 1
         if action == "thrust":
-            self.row = (self.row - 1) % len(STATS)
+            self.row = (self.row - 1) % rows
         elif action == "down":
-            self.row = (self.row + 1) % len(STATS)
+            self.row = (self.row + 1) % rows
         elif action in ("left", "right"):
-            stat = STATS[self.row]
-            delta = stat.step if action == "right" else -stat.step
-            value = min(stat.max, max(stat.min, stat.get(self.ship_type) + delta))
-            self.ship_type = stat.set(self.ship_type, value)
+            if self.row == MOMENTUM_ROW:
+                self.loadout.momentum = not self.loadout.momentum
+                return
+            key = STATS[self.row].key
+            level = self.loadout.levels[key]
+            if action == "right" and level < MAX_LEVEL and self.loadout.points_left > 0:
+                self.loadout.levels[key] = level + 1
+            elif action == "left" and level > 0:
+                self.loadout.levels[key] = level - 1
 
     def draw(self, surface: pygame.Surface, rect: pygame.Rect, font, big_font) -> None:
         color = settings.PLAYER_COLORS[self.index]
+        dim = tuple(c // 3 for c in color)
         pygame.draw.rect(surface, color, rect, width=2, border_radius=8)
         title = big_font.render(settings.PLAYER_NAMES[self.index], True, color)
         surface.blit(title, title.get_rect(midtop=(rect.centerx, rect.top + 20)))
 
-        y = rect.top + 100
-        for i, stat in enumerate(STATS):
+        left = self.loadout.points_left
+        points = font.render(f"Points left: {left} / {BUDGET}", True,
+                             color if left else (170, 170, 185))
+        surface.blit(points, points.get_rect(midtop=(rect.centerx, rect.top + 78)))
+
+        y = rect.top + 120
+        pip_x, pip_w, pip_gap = rect.left + 190, 14, 4
+        for i in range(len(STATS) + 1):
             selected = i == self.row and not self.ready
             text_color = (255, 255, 255) if selected else (170, 170, 185)
             if selected:
                 pygame.draw.rect(surface, (40, 40, 60), (rect.left + 16, y - 6, rect.width - 32, 36),
                                  border_radius=4)
-            surface.blit(font.render(stat.label, True, text_color), (rect.left + 32, y))
-            value = stat.get(self.ship_type)
-            value_color = color if selected else text_color
-            val = font.render(stat.fmt(value), True, value_color)
-            surface.blit(val, val.get_rect(midtop=(rect.right - 115, y)))
-            if value > stat.min:
-                surface.blit(font.render("<", True, value_color), (rect.right - 200, y))
-            if value < stat.max:
-                arrow = font.render(">", True, value_color)
-                surface.blit(arrow, arrow.get_rect(topright=(rect.right - 32, y)))
+            if i == MOMENTUM_ROW:
+                label, value = "Momentum", ("on" if self.loadout.momentum else "off") + "  (free)"
+            else:
+                stat = STATS[i]
+                level = self.loadout.levels[stat.key]
+                label, value = stat.label, stat.fmt(stat.value(level))
+                for k in range(MAX_LEVEL):
+                    pip = (pip_x + k * (pip_w + pip_gap), y + 2, pip_w, 16)
+                    pygame.draw.rect(surface, color if k < level else dim, pip,
+                                     width=0 if k < level else 1, border_radius=2)
+            surface.blit(font.render(label, True, text_color), (rect.left + 32, y))
+            val = font.render(value, True, color if selected else text_color)
+            surface.blit(val, val.get_rect(topright=(rect.right - 32, y)))
             y += 48
 
         c = self.controls
@@ -139,7 +180,7 @@ class PlayerPanel:
             help_lines = ["set up on the other PC"]
         else:
             help_lines = [
-                f"{name(c.thrust)} / {name(c.down)}: choose    {name(c.left)} / {name(c.right)}: change",
+                f"{name(c.thrust)} / {name(c.down)}: choose    {name(c.left)} / {name(c.right)}: sell / buy",
                 f"{name(c.fire)}: {'not ready' if self.ready else 'ready'}",
             ]
         for j, line in enumerate(help_lines):
@@ -152,10 +193,12 @@ class PlayerPanel:
 
 
 class ConfigScreen:
-    def __init__(self, font, big_font):
+    def __init__(self, font, big_font, loadouts: list[Loadout] | None = None):
         self.font = font
         self.big_font = big_font
-        self.panels = [PlayerPanel(i, t) for i, t in enumerate(load_ship_types())]
+        if loadouts is None:
+            loadouts = load_loadouts()
+        self.panels = [PlayerPanel(i, Loadout.from_dict(l.to_dict())) for i, l in enumerate(loadouts)]
         self.banner = ""  # extra line under the title, e.g. LAN connection status
 
     def handle_action(self, player: int, action: str) -> None:
@@ -165,8 +208,8 @@ class ConfigScreen:
     def done(self) -> bool:
         return all(p.ready for p in self.panels)
 
-    def ship_types(self) -> list[ShipType]:
-        return [p.ship_type for p in self.panels]
+    def loadouts(self) -> list[Loadout]:
+        return [p.loadout for p in self.panels]
 
     def draw(self, surface: pygame.Surface) -> None:
         w, h = surface.get_size()

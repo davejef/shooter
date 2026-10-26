@@ -4,7 +4,6 @@ With net=None both players share this keyboard. With a net.Host this PC runs the
 for Blue and takes Red's input from the network; with a net.Client this PC only sends
 Red's input and draws the host's snapshots."""
 
-import dataclasses
 import random
 
 import pygame
@@ -13,7 +12,7 @@ from pygame.math import Vector2
 from . import settings
 from .bullet import Bullet
 from . import net as netplay
-from .config_screen import ConfigScreen, load_ship_types, save_ship_types
+from .config_screen import ConfigScreen, Loadout, load_loadouts, save_loadouts
 from .ship import Ship, ShipInput
 
 MENU_ACTIONS = ("thrust", "down", "left", "right", "fire")
@@ -69,26 +68,27 @@ class Game:
             Ship(settings.DEFAULT_SHIP, settings.PLAYER_COLORS[1], Vector2(w * 0.8, h / 2), 180),
         ]
         self.wins = [0, 0]
+        self.loadouts: list[Loadout] | None = None  # last ships bought; None = load saved
         self.new_round()
         self.open_setup()
 
     def open_setup(self) -> None:
-        self.setup: ConfigScreen | None = ConfigScreen(self.font, self.big_font)
+        self.setup: ConfigScreen | None = ConfigScreen(self.font, self.big_font, self.loadouts)
         if self.net:
             self.setup.panels[1 - self.local_player].remote = True
         pygame.key.set_repeat(300, 60)
 
     def close_setup(self) -> None:
-        types = self.setup.ship_types()
+        self.loadouts = self.setup.loadouts()
         if self.net:
             # Only remember this PC's own ship; the other PC remembers its own.
-            saved = load_ship_types()
-            saved[self.local_player] = types[self.local_player]
-            save_ship_types(saved)
+            saved = load_loadouts()
+            saved[self.local_player] = self.loadouts[self.local_player]
+            save_loadouts(saved)
         else:
-            save_ship_types(types)
-        for ship, ship_type in zip(self.ships, types):
-            ship.type = ship_type
+            save_loadouts(self.loadouts)
+        for ship, loadout in zip(self.ships, self.loadouts):
+            ship.type = loadout.ship_type()
         self.setup = None
         pygame.key.set_repeat()
         self.wins = [0, 0]
@@ -121,9 +121,6 @@ class Game:
             self.new_round()
         elif cmd == "setup":
             self.open_setup()
-            # Start from the ships just played, not what was last saved on this PC.
-            for panel, ship in zip(self.setup.panels, self.ships):
-                panel.ship_type = ship.type
 
     def handle_events(self) -> bool:
         for event in pygame.event.get():
@@ -170,9 +167,9 @@ class Game:
                     self.setup.panels[1].ready = False
                 elif kind == "hello" and self.setup is not None:
                     try:
-                        self.setup.panels[1].ship_type = settings.ShipType(**msg["ship"])
-                    except (KeyError, TypeError):
-                        pass
+                        self.setup.panels[1].loadout = Loadout.from_dict(msg.get("loadout"))
+                    except ValueError:
+                        pass  # not within the point budget: Red starts from a fresh ship
                 elif kind == "action" and msg.get("a") in MENU_ACTIONS:
                     self.menu_action(1, msg["a"])
                 elif kind == "cmd":
@@ -310,7 +307,7 @@ class Game:
 
     def run(self) -> None:
         if isinstance(self.net, netplay.Client):
-            self.net.send({"t": "hello", "ship": dataclasses.asdict(load_ship_types()[1])})
+            self.net.send({"t": "hello", "loadout": load_loadouts()[1].to_dict()})
         while self.tick(min(self.clock.tick(settings.FPS) / 1000.0, 0.05)):
             pass
         pygame.quit()

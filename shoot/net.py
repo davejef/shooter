@@ -5,7 +5,7 @@ host sends back a snapshot of the world every frame, which the joiner just draws
 Messages are JSON objects, one per line, over a single TCP connection.
 
 Host -> client: {"t": "snapshot", ...}         see snapshot()
-Client -> host: {"t": "hello", "ship": {...}}  the joiner's saved ship, sent once
+Client -> host: {"t": "hello", "loadout": {...}}  the joiner's saved ship, sent once
                 {"t": "input", "turn", "thrust", "fire"}
                 {"t": "action", "a": <Controls field>}   setup screen
                 {"t": "cmd", "c": "rematch" | "setup"}
@@ -19,6 +19,7 @@ from pygame.math import Vector2
 
 from . import settings
 from .bullet import Bullet
+from .config_screen import Loadout
 from .settings import ShipType
 from .ship import ShipInput
 
@@ -163,7 +164,7 @@ def snapshot(game) -> dict:
     """Everything the joiner needs to draw the current frame."""
     setup = None
     if game.setup is not None:
-        setup = [{"type": dataclasses.asdict(p.ship_type), "row": p.row, "ready": p.ready}
+        setup = [{"loadout": p.loadout.to_dict(), "row": p.row, "ready": p.ready}
                  for p in game.setup.panels]
     return {
         "t": "snapshot",
@@ -186,7 +187,7 @@ def apply_snapshot(game, snap: dict) -> None:
         if game.setup is None:
             game.open_setup()
         for panel, p in zip(game.setup.panels, snap["setup"]):
-            panel.ship_type = ShipType(**p["type"])
+            panel.loadout = Loadout.from_dict(p["loadout"])
             panel.row = p["row"]
             panel.ready = p["ready"]
     elif game.setup is not None:
