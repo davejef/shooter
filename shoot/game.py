@@ -1,5 +1,10 @@
-"""Main game loop: reads the keyboard, steps the world, and draws it."""
+"""Main game loop: reads the keyboard, steps the world, and draws it.
 
+With net=None both players share this keyboard. With a net.Host this PC runs the game
+for Blue and takes Red's input from the network; with a net.Client this PC only sends
+Red's input and draws the host's snapshots."""
+
+import dataclasses
 import random
 
 import pygame
@@ -7,8 +12,11 @@ from pygame.math import Vector2
 
 from . import settings
 from .bullet import Bullet
-from .config_screen import ConfigScreen, save_ship_types
+from . import net as netplay
+from .config_screen import ConfigScreen, load_ship_types, save_ship_types
 from .ship import Ship, ShipInput
+
+MENU_ACTIONS = ("thrust", "down", "left", "right", "fire")
 
 
 class Particle:
@@ -26,8 +34,24 @@ class Particle:
         pygame.draw.circle(surface, self.color, self.pos, 1.5)
 
 
+def key_actions(key: int) -> list[tuple[int, str]]:
+    """Which (control set, action) pairs a key press means."""
+    return [(i, action) for i, c in enumerate(settings.PLAYER_CONTROLS)
+            for action in MENU_ACTIONS if getattr(c, action) == key]
+
+
+def keyboard_input(controls: list[settings.Controls]) -> ShipInput:
+    """Ship input from the keyboard, accepting any of the given control sets."""
+    keys = pygame.key.get_pressed()
+    held = lambda field: any(keys[getattr(c, field)] for c in controls)
+    return ShipInput(turn=int(held("right")) - int(held("left")), thrust=held("thrust"), fire=held("fire"))
+
+
 class Game:
-    def __init__(self):
+    def __init__(self, net: "netplay.Host | netplay.Client | None" = None):
+        self.net = net
+        # In LAN play this PC's player uses whichever keys they like.
+        self.local_player = net.local_player if net else None
         pygame.init()
         pygame.display.set_caption("Shoot")
         self.screen = pygame.display.set_mode((settings.SCREEN_WIDTH, settings.SCREEN_HEIGHT))
@@ -50,11 +74,19 @@ class Game:
 
     def open_setup(self) -> None:
         self.setup: ConfigScreen | None = ConfigScreen(self.font, self.big_font)
+        if self.net:
+            self.setup.panels[1 - self.local_player].remote = True
         pygame.key.set_repeat(300, 60)
 
     def close_setup(self) -> None:
         types = self.setup.ship_types()
-        save_ship_types(types)
+        if self.net:
+            # Only remember this PC's own ship; the other PC remembers its own.
+            saved = load_ship_types()
+            saved[self.local_player] = types[self.local_player]
+            save_ship_types(saved)
+        else:
+            save_ship_types(types)
         for ship, ship_type in zip(self.ships, types):
             ship.type = ship_type
         self.setup = None
@@ -71,15 +103,27 @@ class Game:
         self.round_over_time = 0.0
 
     def read_inputs(self) -> list[ShipInput]:
-        keys = pygame.key.get_pressed()
-        inputs = []
-        for c in settings.PLAYER_CONTROLS:
-            inputs.append(ShipInput(
-                turn=int(keys[c.right]) - int(keys[c.left]),
-                thrust=keys[c.thrust],
-                fire=keys[c.fire],
-            ))
-        return inputs
+        if isinstance(self.net, netplay.Host):
+            return [keyboard_input(settings.PLAYER_CONTROLS), self.net.remote_input]
+        return [keyboard_input([c]) for c in settings.PLAYER_CONTROLS]
+
+    def menu_action(self, player: int, action: str) -> None:
+        if self.setup is None:
+            return
+        self.setup.handle_action(player, action)
+        if self.setup.done:
+            self.close_setup()
+
+    def command(self, cmd: str) -> None:
+        if self.winner is None:
+            return
+        if cmd == "rematch":
+            self.new_round()
+        elif cmd == "setup":
+            self.open_setup()
+            # Start from the ships just played, not what was last saved on this PC.
+            for panel, ship in zip(self.setup.panels, self.ships):
+                panel.ship_type = ship.type
 
     def handle_events(self) -> bool:
         for event in pygame.event.get():
@@ -88,17 +132,63 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     return False
-                if self.setup is not None:
-                    self.setup.handle_key(event.key)
-                    if self.setup.done:
-                        self.close_setup()
-                elif event.key == pygame.K_F1:
-                    settings.WRAPAROUND = not settings.WRAPAROUND
-                elif event.key == pygame.K_r and self.winner is not None:
-                    self.new_round()
-                elif event.key == pygame.K_c and self.winner is not None:
-                    self.open_setup()
+                self.handle_key(event.key)
         return True
+
+    def handle_key(self, key: int) -> None:
+        cmd = {pygame.K_r: "rematch", pygame.K_c: "setup"}.get(key)
+        if isinstance(self.net, netplay.Client):
+            if not self.net.connected:
+                return
+            if self.setup is not None:
+                for _, action in key_actions(key)[:1]:
+                    self.net.send({"t": "action", "a": action})
+            elif cmd:
+                self.net.send({"t": "cmd", "c": cmd})
+            return
+        if isinstance(self.net, netplay.Host) and not self.net.connected:
+            cmd = None  # nobody to play against yet
+        if self.setup is not None:
+            for control_set, action in key_actions(key)[:1]:
+                player = control_set if self.local_player is None else self.local_player
+                self.menu_action(player, action)
+        elif key == pygame.K_F1:
+            settings.WRAPAROUND = not settings.WRAPAROUND
+        elif cmd:
+            self.command(cmd)
+
+    def handle_network(self) -> None:
+        if isinstance(self.net, netplay.Host):
+            for msg in self.net.poll():
+                kind = msg.get("t")
+                if kind in ("connect", "disconnect"):
+                    # Back to setup for a fresh match; Blue keeps any choices already made.
+                    self.wins = [0, 0]
+                    if self.setup is None:
+                        self.new_round()
+                        self.open_setup()
+                    self.setup.panels[1].ready = False
+                elif kind == "hello" and self.setup is not None:
+                    try:
+                        self.setup.panels[1].ship_type = settings.ShipType(**msg["ship"])
+                    except (KeyError, TypeError):
+                        pass
+                elif kind == "action" and msg.get("a") in MENU_ACTIONS:
+                    self.menu_action(1, msg["a"])
+                elif kind == "cmd":
+                    self.command(msg.get("c"))
+            if self.setup is not None:
+                self.setup.banner = ("" if self.net.connected else
+                                     f"Waiting for Red to join: python main.py --join {self.net.address}")
+        elif isinstance(self.net, netplay.Client):
+            snapshots = [m for m in self.net.poll() if m.get("t") == "snapshot"]
+            if snapshots:
+                netplay.apply_snapshot(self, snapshots[-1])  # only the latest matters
+            if self.net.connected:
+                i = keyboard_input(settings.PLAYER_CONTROLS)
+                self.net.send({"t": "input", "turn": i.turn, "thrust": i.thrust, "fire": i.fire})
+            elif self.setup is not None:
+                self.setup.banner = "Lost connection to the host. Esc to quit."
 
     def update(self, dt: float) -> None:
         for ship, ctrl in zip(self.ships, self.read_inputs()):
@@ -132,9 +222,7 @@ class Game:
                 if not ship.alive:
                     self.explode(ship)
 
-        for p in self.particles:
-            p.update(dt)
-        self.particles = [p for p in self.particles if p.life > 0]
+        self.update_particles(dt)
 
         if self.winner is None:
             alive = [i for i, s in enumerate(self.ships) if s.alive]
@@ -142,6 +230,11 @@ class Game:
                 self.winner = alive[0] if alive else -1
                 if self.winner >= 0:
                     self.wins[self.winner] += 1
+
+    def update_particles(self, dt: float) -> None:
+        for p in self.particles:
+            p.update(dt)
+        self.particles = [p for p in self.particles if p.life > 0]
 
     def explode(self, ship: Ship) -> None:
         self.particles.extend(Particle(ship.pos, ship.color) for _ in range(60))
@@ -164,11 +257,15 @@ class Game:
         for i, ship in enumerate(self.ships):
             color = settings.PLAYER_COLORS[i]
             x = 20 if i == 0 else settings.SCREEN_WIDTH - 220
-            label = self.font.render(f"{settings.PLAYER_NAMES[i]}  wins: {self.wins[i]}", True, color)
+            you = "  (you)" if i == self.local_player else ""
+            label = self.font.render(f"{settings.PLAYER_NAMES[i]}{you}  wins: {self.wins[i]}", True, color)
             self.screen.blit(label, (x, 16))
             self.draw_health_bar(x, 44, ship, color)
 
-        mode = f"F1 wrap: {'on' if settings.WRAPAROUND else 'off'}   Esc quit"
+        if isinstance(self.net, netplay.Client):
+            mode = "Esc quit" if self.net.connected else "Lost connection to the host. Esc to quit."
+        else:
+            mode = f"F1 wrap: {'on' if settings.WRAPAROUND else 'off'}   Esc quit"
         text = self.font.render(mode, True, (110, 110, 130))
         self.screen.blit(text, text.get_rect(midbottom=(settings.SCREEN_WIDTH / 2, settings.SCREEN_HEIGHT - 10)))
 
@@ -198,12 +295,22 @@ class Game:
         self.draw_hud()
         pygame.display.flip()
 
+    def tick(self, dt: float) -> bool:
+        """One frame. Returns False when the player quits."""
+        running = self.handle_events()
+        self.handle_network()
+        if isinstance(self.net, netplay.Client):
+            self.update_particles(dt)  # the host simulates everything else
+        elif self.setup is None:
+            self.update(dt)
+        if isinstance(self.net, netplay.Host):
+            self.net.send(netplay.snapshot(self))
+        self.draw()
+        return running
+
     def run(self) -> None:
-        running = True
-        while running:
-            dt = min(self.clock.tick(settings.FPS) / 1000.0, 0.05)
-            running = self.handle_events()
-            if self.setup is None:
-                self.update(dt)
-            self.draw()
+        if isinstance(self.net, netplay.Client):
+            self.net.send({"t": "hello", "ship": dataclasses.asdict(load_ship_types()[1])})
+        while self.tick(min(self.clock.tick(settings.FPS) / 1000.0, 0.05)):
+            pass
         pygame.quit()

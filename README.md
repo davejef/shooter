@@ -39,6 +39,21 @@ loaded next time.
 
 Ramming the other ship damages both of you.
 
+## LAN play (two PCs)
+
+Both PCs need this folder and the setup steps above, and they must be on the same network.
+
+1. On the first PC run `python main.py --host`. It plays Blue, and the setup screen shows
+   the exact command for the other PC, including this PC's IP address.
+2. On the second PC run `python main.py --join <that IP>`. It plays Red.
+3. The first time you host, Windows Firewall asks whether Python may accept connections.
+   Allow it on **Private networks**.
+
+Each player can use either WASD + Space or the arrow keys + Enter. Either player can press
+**R** for a rematch or **C** to change ships, and only the host can toggle wraparound with F1.
+The host runs the game, so Red may feel a few milliseconds of lag on wifi.
+If port 50007 is taken, pick another with `--port` on both PCs.
+
 ## Tuning
 
 Default ship stats are in `DEFAULT_SHIP` in `shoot/settings.py`, and the setup screen's

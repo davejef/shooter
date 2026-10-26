@@ -1,6 +1,6 @@
 """Pre-match setup screen: each player tunes their own ship with their own keys.
 
-Up/down (thrust/back key) picks a stat, left/right changes it, fire toggles ready.
+Up/down (thrust/down key) picks a stat, left/right changes it, fire toggles ready.
 The match starts when both players are ready. Choices are saved to players.json.
 """
 
@@ -89,21 +89,22 @@ class PlayerPanel:
         self.ship_type = ship_type
         self.row = 0
         self.ready = False
+        self.remote = False  # True when this panel is driven from the other PC
 
-    def handle_key(self, key: int) -> None:
-        c = self.controls
-        if key == c.fire:
+    def handle_action(self, action: str) -> None:
+        """Apply one menu action: a Controls field name ("thrust" is up)."""
+        if action == "fire":
             self.ready = not self.ready
             return
         if self.ready:
             return
-        if key == c.thrust:
+        if action == "thrust":
             self.row = (self.row - 1) % len(STATS)
-        elif key == c.down:
+        elif action == "down":
             self.row = (self.row + 1) % len(STATS)
-        elif key in (c.left, c.right):
+        elif action in ("left", "right"):
             stat = STATS[self.row]
-            delta = stat.step if key == c.right else -stat.step
+            delta = stat.step if action == "right" else -stat.step
             value = min(stat.max, max(stat.min, stat.get(self.ship_type) + delta))
             self.ship_type = stat.set(self.ship_type, value)
 
@@ -134,10 +135,13 @@ class PlayerPanel:
 
         c = self.controls
         name = pygame.key.name
-        help_lines = [
-            f"{name(c.thrust)} / {name(c.down)}: choose    {name(c.left)} / {name(c.right)}: change",
-            f"{name(c.fire)}: {'not ready' if self.ready else 'ready'}",
-        ]
+        if self.remote:
+            help_lines = ["set up on the other PC"]
+        else:
+            help_lines = [
+                f"{name(c.thrust)} / {name(c.down)}: choose    {name(c.left)} / {name(c.right)}: change",
+                f"{name(c.fire)}: {'not ready' if self.ready else 'ready'}",
+            ]
         for j, line in enumerate(help_lines):
             text = font.render(line, True, (120, 120, 140))
             surface.blit(text, text.get_rect(midtop=(rect.centerx, rect.bottom - 110 + j * 30)))
@@ -152,10 +156,10 @@ class ConfigScreen:
         self.font = font
         self.big_font = big_font
         self.panels = [PlayerPanel(i, t) for i, t in enumerate(load_ship_types())]
+        self.banner = ""  # extra line under the title, e.g. LAN connection status
 
-    def handle_key(self, key: int) -> None:
-        for panel in self.panels:
-            panel.handle_key(key)
+    def handle_action(self, player: int, action: str) -> None:
+        self.panels[player].handle_action(action)
 
     @property
     def done(self) -> bool:
@@ -168,6 +172,9 @@ class ConfigScreen:
         w, h = surface.get_size()
         title = self.big_font.render("Ship setup", True, (230, 230, 230))
         surface.blit(title, title.get_rect(midtop=(w / 2, 20)))
+        if self.banner:
+            banner = self.font.render(self.banner, True, (230, 210, 120))
+            surface.blit(banner, banner.get_rect(midtop=(w / 2, 72)))
         margin, gap = 40, 40
         panel_w = (w - 2 * margin - gap) / 2
         for i, panel in enumerate(self.panels):

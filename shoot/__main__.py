@@ -1,4 +1,4 @@
-from .game import Game
+from .cli import main
 
 if __name__ == "__main__":
-    Game().run()
+    main()
