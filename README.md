@@ -14,17 +14,16 @@ python main.py
 ## Ship setup
 
 The game opens on a setup screen with one panel per player. Ships are built with point buy:
-each player has **25 points** to spend on hit points, speed, turn speed, bullet speed and
-fire rate. Each stat goes from level 0 to 10 at one point per level, and a fresh ship puts
-5 points in every stat. Momentum is a free on/off choice.
+each player has **24 points** to spend on hit points, speed, turn speed, bullet speed and
+fire rate, which is exactly what the default ship costs. Momentum is a free on/off choice.
 
-| Stat         | Level 0 | Level 5 | Level 10 |
-|--------------|---------|---------|----------|
-| Hit points   | 5       | 10      | 15       |
-| Speed        | 200     | 400     | 600      |
-| Turn speed   | 120°/s  | 220°/s  | 320°/s   |
-| Bullet speed | 300     | 550     | 800      |
-| Fire rate    | 2/s     | 4/s     | 6/s      |
+| Stat         | Range        | Default | Cost              |
+|--------------|--------------|---------|-------------------|
+| Hit points   | 1 to 5       | 3       | 2 points per HP   |
+| Speed        | 200 to 600   | 400     | 1 point per 40    |
+| Turn speed   | 120 to 320°/s| 220°/s  | 1 point per 20°/s |
+| Bullet speed | 300 to 800   | 550     | 1 point per 50    |
+| Fire rate    | 2 to 6/s     | 4/s     | 1 point per 0.4/s |
 
 | Action       | Blue    | Red           |
 |--------------|---------|---------------|
@@ -66,6 +65,6 @@ If port 50007 is taken, pick another with `--port` on both PCs.
 
 ## Tuning
 
-The point budget (`BUDGET`), the level cap and each stat's level 0 and level 10 values
-(`STATS`) are in `shoot/config_screen.py`. Screen size and the
+The point budget (`BUDGET`) and each stat's range, levels, default and cost (`STATS`) are
+in `shoot/config_screen.py`. Screen size and the
 wraparound default are in `shoot/settings.py`. Delete `players.json` to reset both ships.

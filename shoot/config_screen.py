@@ -1,6 +1,6 @@
 """Pre-match setup screen: each player buys their ship's stats from a point budget.
 
-Every stat has levels 0-10 and each level costs one point. Both players get the same
+Each stat has levels from 0 up to its own cap, at a fixed cost per level. Both players get the same
 budget, so a ship can be great at a few things or decent at everything, but not both.
 Up/down (thrust/down key) picks a row, left/right sells or buys a level, fire toggles ready.
 The match starts when both players are ready. Choices are saved to players.json.
@@ -19,9 +19,7 @@ from .settings import ShipType
 
 SAVE_FILE = Path(__file__).resolve().parent.parent / "players.json"
 
-BUDGET = 25       # points per player
-MAX_LEVEL = 10    # highest level for any one stat
-START_LEVEL = 5   # a fresh ship puts 5 points in every stat
+BUDGET = 24  # points per player; exactly what a fresh ship (every stat at its start level) costs
 
 
 @dataclass(frozen=True)
@@ -29,12 +27,15 @@ class Stat:
     key: str
     label: str
     lo: float  # value at level 0
-    hi: float  # value at MAX_LEVEL
+    hi: float  # value at max_level
     apply: Callable[[ShipType, float], ShipType]
     fmt: Callable[[float], str]
+    max_level: int = 10
+    start_level: int = 5  # level of a fresh ship; matches DEFAULT_SHIP
+    cost: int = 1         # points per level
 
     def value(self, level: int) -> float:
-        return self.lo + (self.hi - self.lo) * level / MAX_LEVEL
+        return self.lo + (self.hi - self.lo) * level / self.max_level
 
 
 def _set_speed(t: ShipType, v: float) -> ShipType:
@@ -42,10 +43,11 @@ def _set_speed(t: ShipType, v: float) -> ShipType:
     return dataclasses.replace(t, max_speed=v, thrust=v * 0.75)
 
 
-# Level 5 of each stat matches DEFAULT_SHIP.
 STATS = [
-    Stat("hit_points", "Hit points", 5, 15,
-         lambda t, v: dataclasses.replace(t, hit_points=round(v)), lambda v: f"{round(v)}"),
+    # Each hit point matters a lot at this scale, so it costs 2 points per level.
+    Stat("hit_points", "Hit points", 1, 5,
+         lambda t, v: dataclasses.replace(t, hit_points=round(v)), lambda v: f"{round(v)}",
+         max_level=4, start_level=2, cost=2),
     Stat("speed", "Speed", 200, 600, _set_speed, lambda v: f"{round(v)}"),
     Stat("turn_speed", "Turn speed", 120, 320,
          lambda t, v: dataclasses.replace(t, turn_speed=v), lambda v: f"{round(v)}°/s"),
@@ -59,12 +61,12 @@ MOMENTUM_ROW = len(STATS)  # momentum is a free on/off choice after the stats
 
 @dataclass
 class Loadout:
-    levels: dict[str, int] = field(default_factory=lambda: {s.key: START_LEVEL for s in STATS})
+    levels: dict[str, int] = field(default_factory=lambda: {s.key: s.start_level for s in STATS})
     momentum: bool = True
 
     @property
     def points_left(self) -> int:
-        return BUDGET - sum(self.levels.values())
+        return BUDGET - sum(s.cost * self.levels[s.key] for s in STATS)
 
     def ship_type(self) -> ShipType:
         t = settings.DEFAULT_SHIP
@@ -84,7 +86,7 @@ class Loadout:
         except (KeyError, TypeError, ValueError) as e:
             raise ValueError(f"bad loadout: {e}") from None
         loadout = cls(levels, momentum)
-        if any(not 0 <= v <= MAX_LEVEL for v in levels.values()) or loadout.points_left < 0:
+        if any(not 0 <= levels[s.key] <= s.max_level for s in STATS) or loadout.points_left < 0:
             raise ValueError("loadout breaks the point-buy rules")
         return loadout
 
@@ -132,9 +134,10 @@ class PlayerPanel:
             if self.row == MOMENTUM_ROW:
                 self.loadout.momentum = not self.loadout.momentum
                 return
-            key = STATS[self.row].key
+            stat = STATS[self.row]
+            key = stat.key
             level = self.loadout.levels[key]
-            if action == "right" and level < MAX_LEVEL and self.loadout.points_left > 0:
+            if action == "right" and level < stat.max_level and self.loadout.points_left >= stat.cost:
                 self.loadout.levels[key] = level + 1
             elif action == "left" and level > 0:
                 self.loadout.levels[key] = level - 1
@@ -165,8 +168,10 @@ class PlayerPanel:
                 stat = STATS[i]
                 level = self.loadout.levels[stat.key]
                 label, value = stat.label, stat.fmt(stat.value(level))
-                for k in range(MAX_LEVEL):
-                    pip = (pip_x + k * (pip_w + pip_gap), y + 2, pip_w, 16)
+                # A pip per level, wider for stats that cost more per level.
+                w = stat.cost * pip_w + (stat.cost - 1) * pip_gap
+                for k in range(stat.max_level):
+                    pip = (pip_x + k * (w + pip_gap), y + 2, w, 16)
                     pygame.draw.rect(surface, color if k < level else dim, pip,
                                      width=0 if k < level else 1, border_radius=2)
             surface.blit(font.render(label, True, text_color), (rect.left + 32, y))

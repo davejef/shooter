@@ -43,7 +43,7 @@ DEFAULT_SHIP = ShipType(
     bullet_speed=550.0,
     bullet_lifetime=1.4,
     bullet_damage=1,
-    hit_points=10,
+    hit_points=3,
     radius=14.0,
 )
 
