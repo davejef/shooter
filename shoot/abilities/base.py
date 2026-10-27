@@ -15,6 +15,7 @@ class SpecialAbility(ABC):
     key: ClassVar[str]    # id used in saves and over the network
     name: ClassVar[str]   # shown on the setup screen and HUD
     cost: ClassVar[int]   # setup points
+    network_only: ClassVar[bool] = False  # True to offer it only in LAN play
     # Attributes sent over LAN every frame so the other PC can draw this ability.
     STATE: ClassVar[tuple[str, ...]] = ()
 
@@ -38,6 +39,11 @@ class SpecialAbility(ABC):
 
     def draw(self, ship: "Ship", surface: pygame.Surface) -> None:
         """Draw any visible effect around the ship."""
+
+    def visibility(self, ship: "Ship", own_view: bool) -> float:
+        """How visible the ship is, from 0 (hidden) to 1, on its own player's screen
+        (own_view True) or the opponent's. Only differs from 1 in LAN play."""
+        return 1.0
 
     def state(self) -> dict:
         return {name: getattr(self, name) for name in self.STATE}

@@ -67,6 +67,11 @@ def special_cost(key: str | None) -> int:
     return ABILITIES[key].cost if key else 0
 
 
+def special_options(networked: bool) -> list[str | None]:
+    """Specials on offer: network-only ones (like Cloak) need two screens."""
+    return [k for k in SPECIAL_OPTIONS if k is None or networked or not ABILITIES[k].network_only]
+
+
 @dataclass
 class Loadout:
     levels: dict[str, int] = field(default_factory=lambda: {s.key: s.start_level for s in STATS})
@@ -83,14 +88,14 @@ class Loadout:
             t = stat.apply(t, stat.value(self.levels[stat.key]))
         return dataclasses.replace(t, momentum=self.momentum, special=self.special)
 
-    def cycle_special(self, step: int) -> None:
+    def cycle_special(self, step: int, options: list[str | None]) -> None:
         """Move to the next special in that direction that the remaining points can pay for."""
         affordable = self.points_left + special_cost(self.special)
-        i = SPECIAL_OPTIONS.index(self.special)
-        for _ in SPECIAL_OPTIONS:
-            i = (i + step) % len(SPECIAL_OPTIONS)
-            if special_cost(SPECIAL_OPTIONS[i]) <= affordable:
-                self.special = SPECIAL_OPTIONS[i]
+        i = options.index(self.special)
+        for _ in options:
+            i = (i + step) % len(options)
+            if special_cost(options[i]) <= affordable:
+                self.special = options[i]
                 return
 
     def to_dict(self) -> dict:
@@ -132,9 +137,12 @@ def save_loadouts(loadouts: list[Loadout]) -> None:
 
 
 class PlayerPanel:
-    def __init__(self, index: int, loadout: Loadout):
+    def __init__(self, index: int, loadout: Loadout, networked: bool = False):
         self.index = index
         self.controls = settings.PLAYER_CONTROLS[index]
+        self.specials = special_options(networked)
+        if loadout.special not in self.specials:
+            loadout.special = None  # e.g. a saved Cloak in a local game; refunds its points
         self.loadout = loadout
         self.row = 0
         self.ready = False
@@ -153,7 +161,7 @@ class PlayerPanel:
             self.row = (self.row + 1) % ROWS
         elif action in ("left", "right"):
             if self.row == SPECIAL_ROW:
-                self.loadout.cycle_special(1 if action == "right" else -1)
+                self.loadout.cycle_special(1 if action == "right" else -1, self.specials)
                 return
             if self.row == MOMENTUM_ROW:
                 self.loadout.momentum = not self.loadout.momentum
@@ -227,12 +235,12 @@ class PlayerPanel:
 
 
 class ConfigScreen:
-    def __init__(self, font, big_font, loadouts: list[Loadout] | None = None):
+    def __init__(self, font, big_font, loadouts: list[Loadout] | None = None, networked: bool = False):
         self.font = font
         self.big_font = big_font
         if loadouts is None:
             loadouts = load_loadouts()
-        self.panels = [PlayerPanel(i, Loadout.from_dict(l.to_dict())) for i, l in enumerate(loadouts)]
+        self.panels = [PlayerPanel(i, Loadout.from_dict(l.to_dict()), networked) for i, l in enumerate(loadouts)]
         self.banner = ""  # extra line under the title, e.g. LAN connection status
 
     def handle_action(self, player: int, action: str) -> None:

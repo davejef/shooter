@@ -75,7 +75,8 @@ class Game:
         self.open_setup()
 
     def open_setup(self) -> None:
-        self.setup: ConfigScreen | None = ConfigScreen(self.font, self.big_font, self.loadouts)
+        self.setup: ConfigScreen | None = ConfigScreen(self.font, self.big_font, self.loadouts,
+                                                       networked=self.net is not None)
         if self.net:
             self.setup.panels[1 - self.local_player].remote = True
         pygame.key.set_repeat(300, 60)
@@ -308,8 +309,9 @@ class Game:
             return
         for bullet in self.bullets:
             bullet.draw(self.screen)
-        for ship in self.ships:
-            ship.draw(self.screen)
+        for i, ship in enumerate(self.ships):
+            # On a shared screen every ship counts as the viewer's own.
+            ship.draw(self.screen, own_view=self.local_player in (None, i))
         for p in self.particles:
             p.draw(self.screen)
         self.draw_hud()

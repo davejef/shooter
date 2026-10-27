@@ -101,14 +101,19 @@ class Ship:
         self.hp = max(0, self.hp - damage)
         self.hit_flash = 0.12
 
-    def draw(self, surface: pygame.Surface) -> None:
+    def draw(self, surface: pygame.Surface, own_view: bool = True) -> None:
+        """own_view: whether this ship belongs to the player looking at this screen."""
         if not self.alive:
             return
+        alpha = self.ability.visibility(self, own_view) if self.ability else 1.0
+        if alpha <= 0:
+            return
+        fade = lambda c: tuple(round(a * alpha + b * (1 - alpha)) for a, b in zip(c, settings.BACKGROUND))
         color = (255, 255, 255) if self.hit_flash > 0 else self.color
         points = [self.pos + p.rotate(self.angle) for p in SHIP_SHAPE]
-        pygame.draw.polygon(surface, color, points, width=2)
+        pygame.draw.polygon(surface, fade(color), points, width=2)
         if self.thrusting:
             flame = [self.pos + p.rotate(self.angle) for p in FLAME_SHAPE]
-            pygame.draw.lines(surface, (255, 200, 60), False, flame, width=2)
+            pygame.draw.lines(surface, fade((255, 200, 60)), False, flame, width=2)
         if self.ability:
             self.ability.draw(self, surface)
