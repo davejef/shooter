@@ -77,9 +77,9 @@ The point budget (`BUDGET`) and each stat's range, levels, default and cost (`ST
 in `shoot/config_screen.py`. Screen size and the
 wraparound default are in `shoot/settings.py`.
 
-To add a special ability, subclass `SpecialAbility` in `shoot/abilities.py`: set `key`,
+To add a special ability, subclass `SpecialAbility` in a new module in the `shoot/abilities/` package: set `key`,
 `name` and `cost`, implement `update(ship, dt, held)` and `meter`, and override
 `absorbs_hit()` or `draw()` if needed. For a press-to-fire power with a recharge, subclass
 `TriggeredAbility` instead and just set `cooldown` and implement `activate()`. Add the class
-to `ABILITIES`. It then appears on the
+to `ABILITIES` in `shoot/abilities/__init__.py`. It then appears on the
 setup screen and works in LAN play. Delete `players.json` to reset both ships.
