@@ -10,6 +10,7 @@ import pygame
 from pygame.math import Vector2
 
 from . import settings
+from .ai import SimpleAI
 from .bullet import Bullet
 from . import net as netplay
 from .config_screen import ConfigScreen, Loadout, load_loadouts, save_loadouts
@@ -48,10 +49,10 @@ def keyboard_input(controls: list[settings.Controls]) -> ShipInput:
 
 
 class Game:
-    def __init__(self, net: "netplay.Host | netplay.Client | None" = None):
+    def __init__(self, net: "netplay.Host | netplay.Client | None" = None, ai: bool = False):
         self.net = net
-        # In LAN play this PC's player uses whichever keys they like.
-        self.local_player = net.local_player if net else None
+        # In LAN play, or against the computer, this PC's player uses whichever keys they like.
+        self.local_player = net.local_player if net else (0 if ai else None)
         pygame.init()
         pygame.display.set_caption("Shoot")
         self.screen = pygame.display.set_mode((settings.SCREEN_WIDTH, settings.SCREEN_HEIGHT))
@@ -69,6 +70,7 @@ class Game:
             Ship(settings.DEFAULT_SHIP, settings.PLAYER_COLORS[0], Vector2(w * 0.2, h / 2), 0),
             Ship(settings.DEFAULT_SHIP, settings.PLAYER_COLORS[1], Vector2(w * 0.8, h / 2), 180),
         ]
+        self.ai = SimpleAI(self.ships[1], self.ships[0]) if ai else None  # flies Red
         self.wins = [0, 0]
         self.loadouts: list[Loadout] | None = None  # last ships bought; None = load saved
         self.new_round()
@@ -79,6 +81,10 @@ class Game:
                                                        networked=self.net is not None)
         if self.net:
             self.setup.panels[1 - self.local_player].remote = True
+        if self.ai:
+            # The computer keeps Red's last ship (the default at first) and is always ready.
+            red = self.setup.panels[1]
+            red.remote, red.remote_text, red.ready = True, "computer player", True
         pygame.key.set_repeat(300, 60)
 
     def close_setup(self) -> None:
@@ -108,6 +114,8 @@ class Game:
     def read_inputs(self) -> list[ShipInput]:
         if isinstance(self.net, netplay.Host):
             return [keyboard_input(settings.PLAYER_CONTROLS), self.net.remote_input]
+        if self.ai:
+            return [keyboard_input(settings.PLAYER_CONTROLS), self.ai.decide(self.bullets, self.frame_dt)]
         return [keyboard_input([c]) for c in settings.PLAYER_CONTROLS]
 
     def menu_action(self, player: int, action: str) -> None:
@@ -192,6 +200,7 @@ class Game:
                 self.setup.banner = "Lost connection to the host. Esc to quit."
 
     def update(self, dt: float) -> None:
+        self.frame_dt = dt
         for ship, ctrl in zip(self.ships, self.read_inputs()):
             if ship.alive:
                 self.bullets.extend(ship.update(dt, ctrl))
@@ -285,7 +294,7 @@ class Game:
         for i, ship in enumerate(self.ships):
             color = settings.PLAYER_COLORS[i]
             x = 20 if i == 0 else settings.SCREEN_WIDTH - 220
-            you = "  (you)" if i == self.local_player else ""
+            you = "  (you)" if i == self.local_player else ("  (computer)" if self.ai and i == 1 else "")
             label = self.font.render(f"{settings.PLAYER_NAMES[i]}{you}  wins: {self.wins[i]}", True, color)
             self.screen.blit(label, (x, 16))
             self.draw_health_bar(x, 44, ship, color)

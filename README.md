@@ -58,6 +58,14 @@ loaded next time.
 
 Ramming the other ship damages both of you.
 
+## Playing against the computer
+
+Run `python main.py --ai`. You fly Blue with either WASD + Space + Left Shift or the arrow
+keys + Enter + Right Shift; the computer flies Red with Red's last saved ship. It leads its
+shots, closes to about 300 px, sidesteps incoming bullets and uses Shield, Spread shot or
+Hyperspace when they help. To make it easier or harder, change `AIM_ERROR` and
+`THINK_INTERVAL` at the top of `shoot/ai.py`.
+
 ## LAN play (two PCs)
 
 Both PCs need this folder and the setup steps above, and they must be on the same network.

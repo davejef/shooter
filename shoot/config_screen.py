@@ -146,7 +146,8 @@ class PlayerPanel:
         self.loadout = loadout
         self.row = 0
         self.ready = False
-        self.remote = False  # True when this panel is driven from the other PC
+        self.remote = False  # True when this panel isn't driven from this keyboard
+        self.remote_text = "set up on the other PC"
 
     def handle_action(self, action: str) -> None:
         """Apply one menu action: a Controls field name ("thrust" is up)."""
@@ -218,7 +219,7 @@ class PlayerPanel:
         c = self.controls
         name = pygame.key.name
         if self.remote:
-            help_lines = ["set up on the other PC"]
+            help_lines = [self.remote_text]
         else:
             help_lines = [
                 f"{name(c.thrust)} / {name(c.down)}: choose    {name(c.left)} / {name(c.right)}: sell / buy",
