@@ -254,17 +254,20 @@ class Game:
             pygame.draw.line(self.screen, tick_color, (tx, y + 1), (tx, y + bar_h - 2))
 
     def draw_ability_meter(self, x: int, y: int, ship: Ship, color) -> None:
-        """Special ability name with a bar that fills as it recharges."""
+        """Special ability name with its meter: recharge progress, or shield time left."""
         ability = ship.ability
         key = pygame.key.name(settings.PLAYER_CONTROLS[self.ships.index(ship)].special)
         if self.local_player is not None:
             key = "shift"  # in LAN play either shift key works
-        ready = ability.ready
-        label = self.small_font.render(f"{ability.name} ({key})" + ("  READY" if ready else ""), True,
-                                       color if ready else (120, 120, 140))
-        self.screen.blit(label, (x, y))
+        # Lit in the player's colour when usable, grey when recharging or used up.
+        label = self.small_font.render(f"{ability.name} ({key})", True,
+                                       color if ability.ready else (120, 120, 140))
         bar_w = 200
-        fill = bar_w * (1 - ability.recharge / ability.cooldown)
+        if ship is self.ships[0]:
+            self.screen.blit(label, (x, y))
+        else:
+            self.screen.blit(label, label.get_rect(topright=(x + bar_w, y)))
+        fill = bar_w * ability.meter
         pygame.draw.rect(self.screen, tuple(c // 2 for c in color), (x, y + 18, bar_w, 4), width=1)
         pygame.draw.rect(self.screen, color, (x, y + 18, fill, 4))
 

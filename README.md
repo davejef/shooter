@@ -28,7 +28,7 @@ An optional special ability costs 2 points, so you sell some stats to afford one
 
 | Special      | Effect                                              | Recharge |
 |--------------|-----------------------------------------------------|----------|
-| Shield       | Blocks all damage, including ramming, for 1.5 s     | 8 s      |
+| Shield       | Hold the key to stay invulnerable (even to ramming). 3 s of shield per round | none |
 | Spread shot  | Fires a fan of 5 bullets                            | 5 s      |
 | Hyperspace   | Jumps to a random spot on the screen                | 6 s      |
 
@@ -77,7 +77,9 @@ The point budget (`BUDGET`) and each stat's range, levels, default and cost (`ST
 in `shoot/config_screen.py`. Screen size and the
 wraparound default are in `shoot/settings.py`.
 
-To add a special ability, subclass `SpecialAbility` in `shoot/abilities.py` (set `key`,
-`name`, `cost`, `cooldown` and optionally `duration`, then implement `activate()`; override
-`absorbs_hit()` or `draw()` if needed) and add it to `ABILITIES`. It then appears on the
+To add a special ability, subclass `SpecialAbility` in `shoot/abilities.py`: set `key`,
+`name` and `cost`, implement `update(ship, dt, held)` and `meter`, and override
+`absorbs_hit()` or `draw()` if needed. For a press-to-fire power with a recharge, subclass
+`TriggeredAbility` instead and just set `cooldown` and implement `activate()`. Add the class
+to `ABILITIES`. It then appears on the
 setup screen and works in LAN play. Delete `players.json` to reset both ships.

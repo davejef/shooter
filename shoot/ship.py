@@ -88,9 +88,7 @@ class Ship:
 
         bullets = []
         if self.ability:
-            self.ability.update(self, dt)
-            if ctrl.special:
-                bullets += self.ability.try_trigger(self)
+            bullets += self.ability.update(self, dt, ctrl.special)
         if ctrl.fire and self.cooldown == 0.0:
             self.cooldown = t.fire_cooldown
             nose = self.pos + self.forward() * (t.radius + 6)
