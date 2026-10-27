@@ -6,7 +6,7 @@ Messages are JSON objects, one per line, over a single TCP connection.
 
 Host -> client: {"t": "snapshot", ...}         see snapshot()
 Client -> host: {"t": "hello", "loadout": {...}}  the joiner's saved ship, sent once
-                {"t": "input", "turn", "thrust", "fire"}
+                {"t": "input", "turn", "thrust", "fire", "special"}
                 {"t": "action", "a": <Controls field>}   setup screen
                 {"t": "cmd", "c": "rematch" | "setup"}
 """
@@ -18,6 +18,7 @@ import socket
 from pygame.math import Vector2
 
 from . import settings
+from .abilities import make_ability
 from .bullet import Bullet
 from .config_screen import Loadout
 from .settings import ShipType
@@ -128,7 +129,8 @@ class Host:
         for msg in self.conn.receive():
             if msg.get("t") == "input":
                 turn = max(-1, min(1, int(msg.get("turn", 0))))
-                self.remote_input = ShipInput(turn, bool(msg.get("thrust")), bool(msg.get("fire")))
+                self.remote_input = ShipInput(turn, bool(msg.get("thrust")), bool(msg.get("fire")),
+                                              bool(msg.get("special")))
             else:
                 events.append(msg)
         return events
@@ -174,6 +176,7 @@ def snapshot(game) -> dict:
             "type": dataclasses.asdict(s.type),
             "pos": _vec(s.pos), "vel": _vec(s.vel), "angle": round(s.angle, 1),
             "hp": s.hp, "thrusting": s.thrusting, "flash": s.hit_flash,
+            "ability": s.ability.state() if s.ability else None,
         } for s in game.ships],
         "bullets": [[game.ships.index(b.owner), *_vec(b.pos)] for b in game.bullets],
         "winner": game.winner,
@@ -201,6 +204,10 @@ def apply_snapshot(game, snap: dict) -> None:
         ship.hp = s["hp"]
         ship.thrusting = s["thrusting"]
         ship.hit_flash = s["flash"]
+        if ship.ability is None or ship.ability.key != ship.type.special:
+            ship.ability = make_ability(ship.type.special)
+        if ship.ability and s["ability"]:
+            ship.ability.load_state(s["ability"])
         if was_alive and not ship.alive:
             game.explode(ship)
     game.bullets = [Bullet(game.ships[owner], Vector2(x, y), Vector2()) for owner, x, y in snap["bullets"]]

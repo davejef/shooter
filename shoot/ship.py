@@ -7,6 +7,7 @@ import pygame
 from pygame.math import Vector2
 
 from . import settings
+from .abilities import make_ability
 from .bullet import Bullet
 from .settings import ShipType
 
@@ -20,6 +21,7 @@ class ShipInput:
     turn: int = 0        # -1 left, 0 none, +1 right
     thrust: bool = False
     fire: bool = False
+    special: bool = False
 
 
 def wrap_or_clamp(pos: Vector2, vel: Vector2, radius: float) -> None:
@@ -55,6 +57,7 @@ class Ship:
         self.cooldown = 0.0
         self.thrusting = False
         self.hit_flash = 0.0
+        self.ability = make_ability(self.type.special)
 
     @property
     def alive(self) -> bool:
@@ -83,13 +86,20 @@ class Ship:
         self.cooldown = max(0.0, self.cooldown - dt)
         self.hit_flash = max(0.0, self.hit_flash - dt)
 
+        bullets = []
+        if self.ability:
+            self.ability.update(self, dt)
+            if ctrl.special:
+                bullets += self.ability.try_trigger(self)
         if ctrl.fire and self.cooldown == 0.0:
             self.cooldown = t.fire_cooldown
             nose = self.pos + self.forward() * (t.radius + 6)
-            return [Bullet(self, nose, self.vel + self.forward() * t.bullet_speed)]
-        return []
+            bullets.append(Bullet(self, nose, self.vel + self.forward() * t.bullet_speed))
+        return bullets
 
     def take_hit(self, damage: int) -> None:
+        if self.ability and self.ability.absorbs_hit(self):
+            return
         self.hp = max(0, self.hp - damage)
         self.hit_flash = 0.12
 
@@ -102,3 +112,5 @@ class Ship:
         if self.thrusting:
             flame = [self.pos + p.rotate(self.angle) for p in FLAME_SHAPE]
             pygame.draw.lines(surface, (255, 200, 60), False, flame, width=2)
+        if self.ability:
+            self.ability.draw(self, surface)

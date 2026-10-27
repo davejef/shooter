@@ -31,6 +31,8 @@ class ShipType:
     # Durability
     hit_points: int
     radius: float           # collision radius in px
+    # Extra
+    special: str | None = None  # key into abilities.ABILITIES, or None for no special
 
 
 DEFAULT_SHIP = ShipType(
@@ -55,11 +57,14 @@ class Controls:
     thrust: int  # also "up" in menus
     down: int    # menus only
     fire: int
+    special: int  # triggers the ship's special ability
 
 
 PLAYER_CONTROLS = [
-    Controls(left=pygame.K_a, right=pygame.K_d, thrust=pygame.K_w, down=pygame.K_s, fire=pygame.K_SPACE),
-    Controls(left=pygame.K_LEFT, right=pygame.K_RIGHT, thrust=pygame.K_UP, down=pygame.K_DOWN, fire=pygame.K_RETURN),
+    Controls(left=pygame.K_a, right=pygame.K_d, thrust=pygame.K_w, down=pygame.K_s, fire=pygame.K_SPACE,
+             special=pygame.K_LSHIFT),
+    Controls(left=pygame.K_LEFT, right=pygame.K_RIGHT, thrust=pygame.K_UP, down=pygame.K_DOWN, fire=pygame.K_RETURN,
+             special=pygame.K_RSHIFT),
 ]
 
 PLAYER_COLORS = [(80, 200, 255), (255, 120, 80)]

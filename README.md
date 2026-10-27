@@ -16,6 +16,7 @@ python main.py
 The game opens on a setup screen with one panel per player. Ships are built with point buy:
 each player has **24 points** to spend on hit points, speed, turn speed, bullet speed and
 fire rate, which is exactly what the default ship costs. Momentum is a free on/off choice.
+An optional special ability costs 2 points, so you sell some stats to afford one.
 
 | Stat         | Range        | Default | Cost              |
 |--------------|--------------|---------|-------------------|
@@ -24,6 +25,12 @@ fire rate, which is exactly what the default ship costs. Momentum is a free on/o
 | Turn speed   | 120 to 320°/s| 220°/s  | 1 point per 20°/s |
 | Bullet speed | 300 to 800   | 550     | 1 point per 50    |
 | Fire rate    | 2 to 6/s     | 4/s     | 1 point per 0.4/s |
+
+| Special      | Effect                                              | Recharge |
+|--------------|-----------------------------------------------------|----------|
+| Shield       | Blocks all damage, including ramming, for 1.5 s     | 8 s      |
+| Spread shot  | Fires a fan of 5 bullets                            | 5 s      |
+| Hyperspace   | Jumps to a random spot on the screen                | 6 s      |
 
 | Action       | Blue    | Red           |
 |--------------|---------|---------------|
@@ -41,6 +48,7 @@ loaded next time.
 | Turn   | A / D       | Left / Right |
 | Thrust | W           | Up           |
 | Fire   | Space       | Enter        |
+| Special | Left Shift | Right Shift  |
 
 - **F1** toggles screen wraparound
 - **R** starts a new round after someone wins, **C** goes back to ship setup
@@ -58,7 +66,7 @@ Both PCs need this folder and the setup steps above, and they must be on the sam
 3. The first time you host, Windows Firewall asks whether Python may accept connections.
    Allow it on **Private networks**.
 
-Each player can use either WASD + Space or the arrow keys + Enter. Either player can press
+Each player can use either WASD + Space + Left Shift or the arrow keys + Enter + Right Shift. Either player can press
 **R** for a rematch or **C** to change ships, and only the host can toggle wraparound with F1.
 The host runs the game, so Red may feel a few milliseconds of lag on wifi.
 If port 50007 is taken, pick another with `--port` on both PCs.
@@ -67,4 +75,9 @@ If port 50007 is taken, pick another with `--port` on both PCs.
 
 The point budget (`BUDGET`) and each stat's range, levels, default and cost (`STATS`) are
 in `shoot/config_screen.py`. Screen size and the
-wraparound default are in `shoot/settings.py`. Delete `players.json` to reset both ships.
+wraparound default are in `shoot/settings.py`.
+
+To add a special ability, subclass `SpecialAbility` in `shoot/abilities.py` (set `key`,
+`name`, `cost`, `cooldown` and optionally `duration`, then implement `activate()`; override
+`absorbs_hit()` or `draw()` if needed) and add it to `ABILITIES`. It then appears on the
+setup screen and works in LAN play. Delete `players.json` to reset both ships.

@@ -43,7 +43,8 @@ def keyboard_input(controls: list[settings.Controls]) -> ShipInput:
     """Ship input from the keyboard, accepting any of the given control sets."""
     keys = pygame.key.get_pressed()
     held = lambda field: any(keys[getattr(c, field)] for c in controls)
-    return ShipInput(turn=int(held("right")) - int(held("left")), thrust=held("thrust"), fire=held("fire"))
+    return ShipInput(turn=int(held("right")) - int(held("left")), thrust=held("thrust"), fire=held("fire"),
+                     special=held("special"))
 
 
 class Game:
@@ -56,6 +57,7 @@ class Game:
         self.screen = pygame.display.set_mode((settings.SCREEN_WIDTH, settings.SCREEN_HEIGHT))
         self.clock = pygame.time.Clock()
         self.font = pygame.font.Font(None, 28)
+        self.small_font = pygame.font.Font(None, 22)
         self.big_font = pygame.font.Font(None, 72)
         self.stars = [
             (random.randrange(settings.SCREEN_WIDTH), random.randrange(settings.SCREEN_HEIGHT),
@@ -183,7 +185,8 @@ class Game:
                 netplay.apply_snapshot(self, snapshots[-1])  # only the latest matters
             if self.net.connected:
                 i = keyboard_input(settings.PLAYER_CONTROLS)
-                self.net.send({"t": "input", "turn": i.turn, "thrust": i.thrust, "fire": i.fire})
+                self.net.send({"t": "input", "turn": i.turn, "thrust": i.thrust, "fire": i.fire,
+                               "special": i.special})
             elif self.setup is not None:
                 self.setup.banner = "Lost connection to the host. Esc to quit."
 
@@ -250,6 +253,21 @@ class Game:
             tick_color = settings.BACKGROUND if k < ship.hp else dim
             pygame.draw.line(self.screen, tick_color, (tx, y + 1), (tx, y + bar_h - 2))
 
+    def draw_ability_meter(self, x: int, y: int, ship: Ship, color) -> None:
+        """Special ability name with a bar that fills as it recharges."""
+        ability = ship.ability
+        key = pygame.key.name(settings.PLAYER_CONTROLS[self.ships.index(ship)].special)
+        if self.local_player is not None:
+            key = "shift"  # in LAN play either shift key works
+        ready = ability.ready
+        label = self.small_font.render(f"{ability.name} ({key})" + ("  READY" if ready else ""), True,
+                                       color if ready else (120, 120, 140))
+        self.screen.blit(label, (x, y))
+        bar_w = 200
+        fill = bar_w * (1 - ability.recharge / ability.cooldown)
+        pygame.draw.rect(self.screen, tuple(c // 2 for c in color), (x, y + 18, bar_w, 4), width=1)
+        pygame.draw.rect(self.screen, color, (x, y + 18, fill, 4))
+
     def draw_hud(self) -> None:
         for i, ship in enumerate(self.ships):
             color = settings.PLAYER_COLORS[i]
@@ -258,6 +276,8 @@ class Game:
             label = self.font.render(f"{settings.PLAYER_NAMES[i]}{you}  wins: {self.wins[i]}", True, color)
             self.screen.blit(label, (x, 16))
             self.draw_health_bar(x, 44, ship, color)
+            if ship.ability:
+                self.draw_ability_meter(x, 62, ship, color)
 
         if isinstance(self.net, netplay.Client):
             mode = "Esc quit" if self.net.connected else "Lost connection to the host. Esc to quit."

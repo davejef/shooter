@@ -15,6 +15,7 @@ from typing import Callable
 import pygame
 
 from . import settings
+from .abilities import ABILITIES
 from .settings import ShipType
 
 SAVE_FILE = Path(__file__).resolve().parent.parent / "players.json"
@@ -57,25 +58,43 @@ STATS = [
          lambda t, v: dataclasses.replace(t, fire_cooldown=1 / v), lambda v: f"{v:.1f} shots/s"),
 ]
 MOMENTUM_ROW = len(STATS)  # momentum is a free on/off choice after the stats
+SPECIAL_ROW = len(STATS) + 1  # then the optional special ability, which costs points
+ROWS = len(STATS) + 2
+SPECIAL_OPTIONS: list[str | None] = [None, *ABILITIES]
+
+
+def special_cost(key: str | None) -> int:
+    return ABILITIES[key].cost if key else 0
 
 
 @dataclass
 class Loadout:
     levels: dict[str, int] = field(default_factory=lambda: {s.key: s.start_level for s in STATS})
     momentum: bool = True
+    special: str | None = None
 
     @property
     def points_left(self) -> int:
-        return BUDGET - sum(s.cost * self.levels[s.key] for s in STATS)
+        return BUDGET - sum(s.cost * self.levels[s.key] for s in STATS) - special_cost(self.special)
 
     def ship_type(self) -> ShipType:
         t = settings.DEFAULT_SHIP
         for stat in STATS:
             t = stat.apply(t, stat.value(self.levels[stat.key]))
-        return dataclasses.replace(t, momentum=self.momentum)
+        return dataclasses.replace(t, momentum=self.momentum, special=self.special)
+
+    def cycle_special(self, step: int) -> None:
+        """Move to the next special in that direction that the remaining points can pay for."""
+        affordable = self.points_left + special_cost(self.special)
+        i = SPECIAL_OPTIONS.index(self.special)
+        for _ in SPECIAL_OPTIONS:
+            i = (i + step) % len(SPECIAL_OPTIONS)
+            if special_cost(SPECIAL_OPTIONS[i]) <= affordable:
+                self.special = SPECIAL_OPTIONS[i]
+                return
 
     def to_dict(self) -> dict:
-        return {"levels": dict(self.levels), "momentum": self.momentum}
+        return {"levels": dict(self.levels), "momentum": self.momentum, "special": self.special}
 
     @classmethod
     def from_dict(cls, data: dict) -> "Loadout":
@@ -83,9 +102,12 @@ class Loadout:
         try:
             levels = {s.key: int(data["levels"][s.key]) for s in STATS}
             momentum = bool(data["momentum"])
-        except (KeyError, TypeError, ValueError) as e:
+            special = data.get("special")
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
             raise ValueError(f"bad loadout: {e}") from None
-        loadout = cls(levels, momentum)
+        if special not in SPECIAL_OPTIONS:
+            raise ValueError(f"unknown special ability: {special!r}")
+        loadout = cls(levels, momentum, special)
         if any(not 0 <= levels[s.key] <= s.max_level for s in STATS) or loadout.points_left < 0:
             raise ValueError("loadout breaks the point-buy rules")
         return loadout
@@ -125,12 +147,14 @@ class PlayerPanel:
             return
         if self.ready:
             return
-        rows = len(STATS) + 1
         if action == "thrust":
-            self.row = (self.row - 1) % rows
+            self.row = (self.row - 1) % ROWS
         elif action == "down":
-            self.row = (self.row + 1) % rows
+            self.row = (self.row + 1) % ROWS
         elif action in ("left", "right"):
+            if self.row == SPECIAL_ROW:
+                self.loadout.cycle_special(1 if action == "right" else -1)
+                return
             if self.row == MOMENTUM_ROW:
                 self.loadout.momentum = not self.loadout.momentum
                 return
@@ -156,7 +180,7 @@ class PlayerPanel:
 
         y = rect.top + 120
         pip_x, pip_w, pip_gap = rect.left + 190, 14, 4
-        for i in range(len(STATS) + 1):
+        for i in range(ROWS):
             selected = i == self.row and not self.ready
             text_color = (255, 255, 255) if selected else (170, 170, 185)
             if selected:
@@ -164,6 +188,10 @@ class PlayerPanel:
                                  border_radius=4)
             if i == MOMENTUM_ROW:
                 label, value = "Momentum", ("on" if self.loadout.momentum else "off") + "  (free)"
+            elif i == SPECIAL_ROW:
+                special = self.loadout.special
+                label = "Special"
+                value = f"{ABILITIES[special].name}  ({special_cost(special)} pts)" if special else "none"
             else:
                 stat = STATS[i]
                 level = self.loadout.levels[stat.key]
@@ -186,7 +214,8 @@ class PlayerPanel:
         else:
             help_lines = [
                 f"{name(c.thrust)} / {name(c.down)}: choose    {name(c.left)} / {name(c.right)}: sell / buy",
-                f"{name(c.fire)}: {'not ready' if self.ready else 'ready'}",
+                f"{name(c.fire)}: {'not ready' if self.ready else 'ready'}    "
+                f"{name(c.special)}: use special in game",
             ]
         for j, line in enumerate(help_lines):
             text = font.render(line, True, (120, 120, 140))
