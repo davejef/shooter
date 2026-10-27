@@ -162,8 +162,24 @@ def _vec(v: Vector2) -> list[float]:
     return [round(v.x, 1), round(v.y, 1)]
 
 
-def snapshot(game) -> dict:
-    """Everything the joiner needs to draw the current frame."""
+def _ship_snapshot(ship, own_view: bool) -> dict:
+    snap = {
+        "type": dataclasses.asdict(ship.type),
+        "pos": _vec(ship.pos), "vel": _vec(ship.vel), "angle": round(ship.angle, 1),
+        "hp": ship.hp, "thrusting": ship.thrusting, "flash": ship.hit_flash,
+        "ability": ship.ability.state(own_view) if ship.ability else None,
+    }
+    if ship.ability and not own_view and ship.alive:
+        disguise = ship.ability.public_positions(ship)
+        if disguise is not None:
+            # Mirror image: the real position must not reach the opponent's PC at all.
+            snap["images"] = [_vec(p) for p in disguise]
+            snap["pos"] = snap["images"][0]
+    return snap
+
+
+def snapshot(game, viewer: int = 1) -> dict:
+    """Everything the joiner (player `viewer`) needs to draw the current frame."""
     setup = None
     if game.setup is not None:
         setup = [{"loadout": p.loadout.to_dict(), "row": p.row, "ready": p.ready}
@@ -172,12 +188,7 @@ def snapshot(game) -> dict:
         "t": "snapshot",
         "wrap": settings.WRAPAROUND,
         "setup": setup,
-        "ships": [{
-            "type": dataclasses.asdict(s.type),
-            "pos": _vec(s.pos), "vel": _vec(s.vel), "angle": round(s.angle, 1),
-            "hp": s.hp, "thrusting": s.thrusting, "flash": s.hit_flash,
-            "ability": s.ability.state() if s.ability else None,
-        } for s in game.ships],
+        "ships": [_ship_snapshot(s, own_view=i == viewer) for i, s in enumerate(game.ships)],
         "bullets": [[game.ships.index(b.owner), *_vec(b.pos)] for b in game.bullets],
         "winner": game.winner,
         "wins": game.wins,
@@ -208,6 +219,8 @@ def apply_snapshot(game, snap: dict) -> None:
             ship.ability = make_ability(ship.type.special)
         if ship.ability and s["ability"]:
             ship.ability.load_state(s["ability"])
+        if ship.ability and "images" in s:
+            ship.ability.disguised = [Vector2(p) for p in s["images"]]
         if was_alive and not ship.alive:
             game.explode(ship)
     game.bullets = [Bullet(game.ships[owner], Vector2(x, y), Vector2()) for owner, x, y in snap["bullets"]]

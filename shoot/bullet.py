@@ -14,8 +14,9 @@ if TYPE_CHECKING:
 class Bullet:
     RADIUS = 2.5
 
-    def __init__(self, owner: "Ship", pos: Vector2, vel: Vector2):
+    def __init__(self, owner: "Ship", pos: Vector2, vel: Vector2, fake: bool = False):
         self.owner = owner
+        self.fake = fake  # fired by a decoy: looks real but does no damage
         self.pos = Vector2(pos)
         self.vel = Vector2(vel)
         self.age = 0.0

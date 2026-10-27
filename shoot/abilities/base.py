@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
 import pygame
+from pygame.math import Vector2
 
 from ..bullet import Bullet
 
@@ -16,6 +17,7 @@ class SpecialAbility(ABC):
     name: ClassVar[str]   # shown on the setup screen and HUD
     cost: ClassVar[int]   # setup points
     network_only: ClassVar[bool] = False  # True to offer it only in LAN play
+    passive: ClassVar[bool] = False       # True if it works without the special key
     # Attributes sent over LAN every frame so the other PC can draw this ability.
     STATE: ClassVar[tuple[str, ...]] = ()
 
@@ -45,7 +47,26 @@ class SpecialAbility(ABC):
         (own_view True) or the opponent's. Only differs from 1 in LAN play."""
         return 1.0
 
-    def state(self) -> dict:
+    def images(self, ship: "Ship", own_view: bool) -> list[tuple[Vector2, float]]:
+        """Where to draw the ship, as (position, visibility) pairs. Usually just one."""
+        return [(ship.pos, self.visibility(ship, own_view))]
+
+    def extra_shots(self, ship: "Ship", shots: list[Bullet]) -> list[Bullet]:
+        """More bullets to add whenever the ship fires its normal gun."""
+        return []
+
+    def intercept(self, ship: "Ship", pos: Vector2, radius: float, destroy: bool) -> bool:
+        """Return True if something at pos hits a part of the ship other than the real one
+        (it is then stopped there and does no damage). destroy: whether it was a real hit."""
+        return False
+
+    def public_positions(self, ship: "Ship") -> list[Vector2] | None:
+        """Where the opponent's PC should draw this ship when it must not be told the real
+        position, or None to send the real position as usual."""
+        return None
+
+    def state(self, own_view: bool) -> dict:
+        """What to send over LAN; own_view says whether it goes to this ship's own player."""
         return {name: getattr(self, name) for name in self.STATE}
 
     def load_state(self, state: dict) -> None:

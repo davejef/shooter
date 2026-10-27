@@ -92,7 +92,10 @@ class Ship:
         if ctrl.fire and self.cooldown == 0.0:
             self.cooldown = t.fire_cooldown
             nose = self.pos + self.forward() * (t.radius + 6)
-            bullets.append(Bullet(self, nose, self.vel + self.forward() * t.bullet_speed))
+            shot = Bullet(self, nose, self.vel + self.forward() * t.bullet_speed)
+            bullets.append(shot)
+            if self.ability:
+                bullets += self.ability.extra_shots(self, [shot])
         return bullets
 
     def take_hit(self, damage: int) -> None:
@@ -105,15 +108,16 @@ class Ship:
         """own_view: whether this ship belongs to the player looking at this screen."""
         if not self.alive:
             return
-        alpha = self.ability.visibility(self, own_view) if self.ability else 1.0
-        if alpha <= 0:
-            return
-        fade = lambda c: tuple(round(a * alpha + b * (1 - alpha)) for a, b in zip(c, settings.BACKGROUND))
+        images = self.ability.images(self, own_view) if self.ability else [(self.pos, 1.0)]
         color = (255, 255, 255) if self.hit_flash > 0 else self.color
-        points = [self.pos + p.rotate(self.angle) for p in SHIP_SHAPE]
-        pygame.draw.polygon(surface, fade(color), points, width=2)
-        if self.thrusting:
-            flame = [self.pos + p.rotate(self.angle) for p in FLAME_SHAPE]
-            pygame.draw.lines(surface, fade((255, 200, 60)), False, flame, width=2)
+        for pos, alpha in images:
+            if alpha <= 0:
+                continue
+            fade = lambda c: tuple(round(a * alpha + b * (1 - alpha)) for a, b in zip(c, settings.BACKGROUND))
+            points = [pos + p.rotate(self.angle) for p in SHIP_SHAPE]
+            pygame.draw.polygon(surface, fade(color), points, width=2)
+            if self.thrusting:
+                flame = [pos + p.rotate(self.angle) for p in FLAME_SHAPE]
+                pygame.draw.lines(surface, fade((255, 200, 60)), False, flame, width=2)
         if self.ability:
             self.ability.draw(self, surface)

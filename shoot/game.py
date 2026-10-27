@@ -201,14 +201,23 @@ class Game:
             for ship in self.ships:
                 if ship is bullet.owner or not ship.alive or not bullet.alive:
                     continue
-                if ship.pos.distance_to(bullet.pos) < ship.type.radius + Bullet.RADIUS:
+                # Decoys (Mirror image) stop bullets; only real bullets destroy them.
+                if ship.ability and ship.ability.intercept(ship, bullet.pos, Bullet.RADIUS,
+                                                           destroy=not bullet.fake):
                     bullet.alive = False
-                    ship.take_hit(bullet.owner.type.bullet_damage)
-                    if not ship.alive:
-                        self.explode(ship)
+                elif ship.pos.distance_to(bullet.pos) < ship.type.radius + Bullet.RADIUS:
+                    bullet.alive = False
+                    if not bullet.fake:
+                        ship.take_hit(bullet.owner.type.bullet_damage)
+                        if not ship.alive:
+                            self.explode(ship)
         self.bullets = [b for b in self.bullets if b.alive]
 
         a, b = self.ships
+        # Ramming a decoy destroys it harmlessly.
+        for ship, other in ((a, b), (b, a)):
+            if ship.ability and ship.alive and other.alive:
+                ship.ability.intercept(ship, other.pos, other.type.radius, destroy=True)
         if a.alive and b.alive and a.pos.distance_to(b.pos) < a.type.radius + b.type.radius:
             # Ramming hurts both ships and knocks them apart.
             for ship in (a, b):
@@ -261,7 +270,7 @@ class Game:
         if self.local_player is not None:
             key = "shift"  # in LAN play either shift key works
         # Lit in the player's colour when usable, grey when recharging or used up.
-        label = self.small_font.render(f"{ability.name} ({key})", True,
+        label = self.small_font.render(ability.name if ability.passive else f"{ability.name} ({key})", True,
                                        color if ability.ready else (120, 120, 140))
         bar_w = 200
         if ship is self.ships[0]:

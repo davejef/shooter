@@ -8,15 +8,16 @@ and add the class to ABILITIES below. It then shows up on the setup screen and w
 from .base import SpecialAbility, TriggeredAbility
 from .cloak import Cloak
 from .hyperspace import Hyperspace
+from .mirror_image import MirrorImage
 from .shield import Shield
 from .spread_shot import SpreadShot
 
-ABILITIES: dict[str, type[SpecialAbility]] = {cls.key: cls for cls in (Shield, SpreadShot, Hyperspace, Cloak)}
+ABILITIES: dict[str, type[SpecialAbility]] = {cls.key: cls for cls in (Shield, SpreadShot, Hyperspace, Cloak, MirrorImage)}
 
 
 def make_ability(key: str | None) -> SpecialAbility | None:
     return ABILITIES[key]() if key else None
 
 
-__all__ = ["ABILITIES", "Cloak", "Hyperspace", "Shield", "SpecialAbility", "SpreadShot", "TriggeredAbility",
+__all__ = ["ABILITIES", "Cloak", "Hyperspace", "MirrorImage", "Shield", "SpecialAbility", "SpreadShot", "TriggeredAbility",
            "make_ability"]
