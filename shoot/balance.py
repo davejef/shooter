@@ -27,6 +27,7 @@ import numpy as np
 
 from . import config_screen, match_log, prices
 from .abilities import ABILITIES
+from .ai import AI_VERSION
 from .config_screen import STATS
 
 MIN_NEW_ROUNDS = 5000  # rounds played on the current prices before the next rebalance
@@ -91,7 +92,10 @@ class Fit:
 
 
 def load_rounds() -> list[dict]:
-    rounds = match_log.read(match_log.SELFPLAY_FILE) + match_log.read(match_log.MATCHES_FILE)
+    """The most recent rounds people played, and self-play rounds by the current computer pilot
+    (its prices are only as good as its play, so rounds an older pilot played don't count)."""
+    selfplay = [r for r in match_log.read(match_log.SELFPLAY_FILE) if r.get("ai") == AI_VERSION]
+    rounds = selfplay + match_log.read(match_log.MATCHES_FILE)
     rounds.sort(key=lambda r: r.get("time", ""))
     return rounds[-MAX_ROUNDS:]
 

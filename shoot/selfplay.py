@@ -16,6 +16,7 @@ import random
 import time
 
 from . import config_screen, match_log
+from .ai import AI_VERSION
 from .config_screen import STATS, Loadout, special_options
 
 FPS = 60
@@ -45,20 +46,31 @@ def random_loadout(rng: random.Random, spend: float = 1.0) -> Loadout:
         loadout.levels[stat.key] += 1
 
 
-def _make_game():
+def make_pilot(name: str, me, enemy, tweaks: dict | None = None):
+    """A computer pilot: "baseline" for the first AI, else a skill level of the current one,
+    optionally with some of its settings changed (see arena.py --set)."""
+    if name == "baseline":
+        from .ai_baseline import SimpleAI
+        return SimpleAI(me, enemy)
+    from .ai import ComputerPilot
+    pilot = type("TunedPilot", (ComputerPilot,), tweaks) if tweaks else ComputerPilot
+    return pilot(me, enemy, name)
+
+
+def _make_game(pilots: tuple[str, str] = ("hard", "hard"), tweaks: tuple[dict, dict] = ({}, {})):
     os.environ["SDL_VIDEODRIVER"] = "dummy"  # no window
     os.environ["SDL_AUDIODRIVER"] = "dummy"
-    from .ai import SimpleAI
     from .game import Game
 
     class SelfPlayGame(Game):
         def __init__(self):
-            super().__init__(ai=True)
+            super().__init__(ai="hard")
             self.setup = None
-            self.blue_ai = SimpleAI(self.ships[0], self.ships[1])
+            self.pilots = [make_pilot(name, me, enemy, tw)
+                           for name, me, enemy, tw in zip(pilots, self.ships, self.ships[::-1], tweaks)]
 
         def read_inputs(self):
-            return [self.blue_ai.decide(self.bullets, self.frame_dt), self.ai.decide(self.bullets, self.frame_dt)]
+            return [p.decide(self.bullets, self.frame_dt) for p in self.pilots]
 
         def round_finished(self):
             pass  # logged by the runner
@@ -84,7 +96,8 @@ def _worker(args: tuple[int, int]) -> list[dict]:
     for _ in range(count):
         loadouts = [random_loadout(rng, rng.uniform(MIN_SPEND, 1.0)) for _ in range(2)]
         winner, seconds = game.play(loadouts)
-        rounds.append(match_log.entry("selfplay", loadouts, winner, seconds, config_screen.PRICES.version))
+        rounds.append(match_log.entry("selfplay", loadouts, winner, seconds, config_screen.PRICES.version,
+                                      ai=AI_VERSION))
     return rounds
 
 

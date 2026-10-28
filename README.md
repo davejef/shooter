@@ -67,11 +67,37 @@ Ramming the other ship damages both of you.
 ## Playing against the computer
 
 Run `python main.py --ai`. You fly Blue with either WASD + Space + Left Shift or the arrow
-keys + Enter + Right Shift; the computer flies Red with Red's last saved ship. It leads its
-shots, closes to about 300 px, sidesteps incoming bullets and uses Shield, Spread shot,
-Hyperspace or Cloak when they help. It only sees what a person would: it loses track of a
-cloaked ship and can't tell a Mirror image decoy from the real ship. To make it easier or harder, change `AIM_ERROR` and
-`THINK_INTERVAL` at the top of `shoot/ai.py`.
+keys + Enter + Right Shift; the computer flies Red with Red's last saved ship.
+
+The computer has three skill levels: **easy**, **normal** (the default) and **hard**. Pick one
+with `python main.py --ai hard`, or press **F2** on the setup screen to cycle through them.
+Hard is the strongest it can play; normal is about as good as the first computer player, and
+easy loses to that most of the time. All three are the same pilot, with slower reactions,
+worse aim and less look-ahead on the lower levels (`SKILLS` in `shoot/ai.py`).
+
+Several times a second it tries a dozen short manoeuvres, plays each one forward with the
+real ship movement against the bullets on screen, and flies the best: dodging, getting a
+shot that will land, keeping a good distance and avoiding rams it would lose. It fires when
+a bullet leaving the nose now would meet the target, and uses its special when it helps
+(Shield or Hyperspace when a hit can't be dodged, Cloak when you have it in your sights).
+It only sees what a person would: a cloaked ship is out of sight, though its bullets give
+away where it was, and it can't tell a Mirror image decoy from the real ship.
+
+### Testing the computer player
+
+`python -m shoot.arena` pits two pilots against each other on random ships and reports
+win rate, hit rate and how often both ships die. The first computer player is kept, unchanged,
+in `shoot/ai_baseline.py` as a yardstick:
+
+```
+python -m shoot.arena                          hard against the first computer player
+python -m shoot.arena --a normal --b baseline  any two of easy, normal, hard, baseline
+python -m shoot.arena --scenarios              also fixed match-ups, like Cloak against a plain ship
+python -m shoot.arena --b hard --set SHOT_VALUE=80   try a setting of ComputerPilot on pilot A
+```
+
+When you change the pilot, bump `AI_VERSION` in `shoot/ai.py`: self-play rounds from an older
+pilot are then left out of rebalancing.
 
 ## LAN play (two PCs)
 
@@ -107,6 +133,7 @@ connects. The setup screen shows which version is in use.
 The game keeps prices balanced by itself. Every finished round is logged with both ships:
 games people play go to `matches.jsonl` (in LAN play the host logs them), and
 computer-vs-computer games go to `selfplay.jsonl`. Both logs stay on this PC (gitignored).
+Self-play rounds only count while the computer pilot that played them is the current one.
 
 Once 5000 rounds have been played on the current prices (a round people played counts
 double), the next start of the game fits a model of how much each level step, momentum and
@@ -119,12 +146,13 @@ Commit `prices.json` and `prices/` to share them.
 People can't play enough games for this on their own, so the computer plays itself:
 
 ```
-python -m shoot.selfplay              5000 rounds, then rebalance (a few seconds on 20 cores)
+python -m shoot.selfplay              5000 rounds, then rebalance (about half a minute on 20 cores)
 python -m shoot.selfplay --cycles 10  play, rebalance, repeat: prices mostly settle in about 10
 python -m shoot.balance --report                   what each upgrade is worth by the data so far
 ```
 
-Self-play uses random builds, so every upgrade gets tried in many combinations. Each ship
+Self-play uses random builds, so every upgrade gets tried in many combinations, with the
+computer on hard. Each ship
 spends a random 60-100% of the budget, which is what shows how much a point is worth.
 In tests, two separate samples of 5000 rounds agreed on each price to about 2 points. Prices end up balanced for how the computer plays, which is not quite
 how people play: human rounds count double to pull them back towards that.

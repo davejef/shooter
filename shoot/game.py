@@ -10,7 +10,7 @@ import pygame
 from pygame.math import Vector2
 
 from . import settings
-from .ai import SimpleAI
+from .ai import AI_VERSION, SKILLS, ComputerPilot
 from .bullet import Bullet
 from . import net as netplay
 from . import config_screen, match_log
@@ -50,7 +50,8 @@ def keyboard_input(controls: list[settings.Controls]) -> ShipInput:
 
 
 class Game:
-    def __init__(self, net: "netplay.Host | netplay.Client | None" = None, ai: bool = False):
+    def __init__(self, net: "netplay.Host | netplay.Client | None" = None, ai: str | None = None):
+        """ai: the computer's skill level ("easy", "normal" or "hard") to play against it."""
         self.net = net
         # In LAN play, or against the computer, this PC's player uses whichever keys they like.
         self.local_player = net.local_player if net else (0 if ai else None)
@@ -71,7 +72,7 @@ class Game:
             Ship(settings.DEFAULT_SHIP, settings.PLAYER_COLORS[0], Vector2(w * 0.2, h / 2), 0),
             Ship(settings.DEFAULT_SHIP, settings.PLAYER_COLORS[1], Vector2(w * 0.8, h / 2), 180),
         ]
-        self.ai = SimpleAI(self.ships[1], self.ships[0]) if ai else None  # flies Red
+        self.ai = ComputerPilot(self.ships[1], self.ships[0], ai) if ai else None  # flies Red
         self.wins = [0, 0]
         self.loadouts: list[Loadout] | None = None  # last ships bought; None = load saved
         self.new_round()
@@ -85,8 +86,18 @@ class Game:
         if self.ai:
             # The computer keeps Red's last ship (the default at first) and is always ready.
             red = self.setup.panels[1]
-            red.remote, red.remote_text, red.ready = True, "computer player", True
+            red.remote, red.ready = True, True
+            self.show_skill()
         pygame.key.set_repeat(300, 60)
+
+    def show_skill(self) -> None:
+        self.setup.panels[1].remote_text = f"computer player: {self.ai.skill.name}    F2: change"
+
+    def change_skill(self) -> None:
+        names = list(SKILLS)
+        skill = names[(names.index(self.ai.skill.name) + 1) % len(names)]
+        self.ai = ComputerPilot(self.ships[1], self.ships[0], skill)
+        self.show_skill()
 
     def close_setup(self) -> None:
         self.loadouts = self.setup.loadouts()
@@ -159,7 +170,9 @@ class Game:
             return
         if isinstance(self.net, netplay.Host) and not self.net.connected:
             cmd = None  # nobody to play against yet
-        if self.setup is not None:
+        if self.setup is not None and self.ai and key == pygame.K_F2:
+            self.change_skill()
+        elif self.setup is not None:
             for control_set, action in key_actions(key)[:1]:
                 player = control_set if self.local_player is None else self.local_player
                 self.menu_action(player, action)
@@ -269,7 +282,7 @@ class Game:
         """Log the round for rebalancing. In LAN play only the host logs it."""
         mode = "lan" if self.net else ("ai" if self.ai else "local")
         match_log.append([match_log.entry(mode, self.loadouts, self.winner, self.round_time,
-                                          config_screen.PRICES.version)])
+                                          config_screen.PRICES.version, ai=AI_VERSION if self.ai else None)])
 
     def update_particles(self, dt: float) -> None:
         for p in self.particles:
@@ -315,7 +328,7 @@ class Game:
         for i, ship in enumerate(self.ships):
             color = settings.PLAYER_COLORS[i]
             x = 20 if i == 0 else settings.SCREEN_WIDTH - 220
-            you = "  (you)" if i == self.local_player else ("  (computer)" if self.ai and i == 1 else "")
+            you = "  (you)" if i == self.local_player else (f"  (computer, {self.ai.skill.name})" if self.ai and i == 1 else "")
             label = self.font.render(f"{settings.PLAYER_NAMES[i]}{you}  wins: {self.wins[i]}", True, color)
             self.screen.blit(label, (x, 16))
             self.draw_health_bar(x, 44, ship, color)

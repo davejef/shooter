@@ -4,6 +4,7 @@ import argparse
 import sys
 
 from . import net
+from .ai import SKILLS
 from .game import Game
 
 
@@ -12,7 +13,9 @@ def main() -> None:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--host", action="store_true", help="host a LAN game (you play Blue)")
     mode.add_argument("--join", metavar="HOST_IP", help="join a LAN game at this address (you play Red)")
-    mode.add_argument("--ai", action="store_true", help="play alone against the computer (it flies Red)")
+    mode.add_argument("--ai", nargs="?", const="normal", choices=list(SKILLS), metavar="SKILL",
+                      help="play alone against the computer (it flies Red): easy, normal (the default) "
+                           "or hard")
     parser.add_argument("--port", type=int, default=net.DEFAULT_PORT, help=f"default {net.DEFAULT_PORT}")
     args = parser.parse_args()
 

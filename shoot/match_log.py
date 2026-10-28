@@ -14,11 +14,15 @@ MATCHES_FILE = ROOT / "matches.jsonl"
 SELFPLAY_FILE = ROOT / "selfplay.jsonl"
 
 
-def entry(mode: str, loadouts, winner: int, seconds: float, prices_version: int) -> dict:
+def entry(mode: str, loadouts, winner: int, seconds: float, prices_version: int,
+          ai: int | None = None) -> dict:
     """One round. mode: "local", "lan", "ai" (person vs computer) or "selfplay".
-    winner: 0 Blue, 1 Red, -1 draw."""
-    return {"time": time.strftime("%Y-%m-%dT%H:%M:%S"), "mode": mode, "prices": prices_version,
-            "ships": [l.to_dict() for l in loadouts], "winner": winner, "seconds": round(seconds, 1)}
+    winner: 0 Blue, 1 Red, -1 draw. ai: version of the computer pilot, if one played."""
+    e = {"time": time.strftime("%Y-%m-%dT%H:%M:%S"), "mode": mode, "prices": prices_version,
+         "ships": [l.to_dict() for l in loadouts], "winner": winner, "seconds": round(seconds, 1)}
+    if ai is not None:
+        e["ai"] = ai
+    return e
 
 
 def append(entries: list[dict], path: Path = MATCHES_FILE) -> None:
