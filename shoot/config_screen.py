@@ -1,7 +1,8 @@
 """Pre-match setup screen: each player buys their ship's stats from a point budget.
 
-Each stat has levels from 0 up to its own cap, at a fixed cost per level. Both players get the same
-budget, so a ship can be great at a few things or decent at everything, but not both.
+Each stat has levels from 0 up to its own cap. What each level step, momentum and special costs
+comes from the price table (see prices.py), which can change as the game is rebalanced. Both
+players get the same budget, so a ship can be great at a few things or decent at everything, but not both.
 Up/down (thrust/down key) picks a row, left/right sells or buys a level, fire toggles ready.
 The match starts when both players are ready. Choices are saved to players.json.
 """
@@ -14,14 +15,11 @@ from typing import Callable
 
 import pygame
 
-from . import settings
+from . import prices, settings
 from .abilities import ABILITIES
 from .settings import ShipType
 
 SAVE_FILE = Path(__file__).resolve().parent.parent / "players.json"
-
-BUDGET = 24  # points per player; exactly what a fresh ship (every stat at its start level) costs
-
 
 @dataclass(frozen=True)
 class Stat:
@@ -33,7 +31,6 @@ class Stat:
     fmt: Callable[[float], str]
     max_level: int = 10
     start_level: int = 5  # level of a fresh ship; matches DEFAULT_SHIP
-    cost: int = 1         # points per level
 
     def value(self, level: int) -> float:
         return self.lo + (self.hi - self.lo) * level / self.max_level
@@ -45,10 +42,9 @@ def _set_speed(t: ShipType, v: float) -> ShipType:
 
 
 STATS = [
-    # Each hit point matters a lot at this scale, so it costs 2 points per level.
     Stat("hit_points", "Hit points", 1, 5,
          lambda t, v: dataclasses.replace(t, hit_points=round(v)), lambda v: f"{round(v)}",
-         max_level=4, start_level=2, cost=2),
+         max_level=4, start_level=2),
     Stat("speed", "Speed", 200, 600, _set_speed, lambda v: f"{round(v)}"),
     Stat("turn_speed", "Turn speed", 120, 320,
          lambda t, v: dataclasses.replace(t, turn_speed=v), lambda v: f"{round(v)}°/s"),
@@ -57,14 +53,19 @@ STATS = [
     Stat("fire_rate", "Fire rate", 2, 6,
          lambda t, v: dataclasses.replace(t, fire_cooldown=1 / v), lambda v: f"{v:.1f} shots/s"),
 ]
-MOMENTUM_ROW = len(STATS)  # momentum is a free on/off choice after the stats
+MOMENTUM_ROW = len(STATS)  # momentum is an on/off choice after the stats, each side priced
 SPECIAL_ROW = len(STATS) + 1  # then the optional special ability, which costs points
 ROWS = len(STATS) + 2
 SPECIAL_OPTIONS: list[str | None] = [None, *ABILITIES]
 
+# The price table in use. In LAN play the joiner swaps in the host's with use_prices().
+PRICES = prices.load({s.key: s.max_level for s in STATS}, list(ABILITIES))
 
-def special_cost(key: str | None) -> int:
-    return ABILITIES[key].cost if key else 0
+
+def use_prices(data: dict) -> None:
+    """Switch to a price table sent as a dict (raises ValueError if it is malformed)."""
+    global PRICES
+    PRICES = prices.PriceTable.from_dict(data, {s.key: s.max_level for s in STATS}, list(ABILITIES))
 
 
 def special_options(networked: bool) -> list[str | None]:
@@ -79,8 +80,29 @@ class Loadout:
     special: str | None = None
 
     @property
+    def cost(self) -> int:
+        return (sum(PRICES.stat_cost(s.key, self.levels[s.key]) for s in STATS)
+                + PRICES.momentum_cost(self.momentum) + PRICES.special_cost(self.special))
+
+    @property
     def points_left(self) -> int:
-        return BUDGET - sum(s.cost * self.levels[s.key] for s in STATS) - special_cost(self.special)
+        return PRICES.budget - self.cost
+
+    def fit_budget(self) -> None:
+        """Sell levels until the ship is within budget (e.g. after a price change): the cheapest
+        level that covers the overspend, else the dearest one. Momentum and the special are kept
+        unless selling every level isn't enough."""
+        while self.points_left < 0:
+            refunds = {s.key: PRICES.step_cost(s.key, self.levels[s.key] - 1) for s in STATS if self.levels[s.key]}
+            if not refunds:
+                break
+            enough = [k for k, r in refunds.items() if r >= -self.points_left]
+            key = min(enough, key=refunds.get) if enough else max(refunds, key=refunds.get)
+            self.levels[key] -= 1
+        if self.points_left < 0:
+            self.special = None
+        if self.points_left < 0 and PRICES.momentum_cost(not self.momentum) < PRICES.momentum_cost(self.momentum):
+            self.momentum = not self.momentum
 
     def ship_type(self) -> ShipType:
         t = settings.DEFAULT_SHIP
@@ -90,20 +112,27 @@ class Loadout:
 
     def cycle_special(self, step: int, options: list[str | None]) -> None:
         """Move to the next special in that direction that the remaining points can pay for."""
-        affordable = self.points_left + special_cost(self.special)
+        affordable = self.points_left + PRICES.special_cost(self.special)
         i = options.index(self.special)
         for _ in options:
             i = (i + step) % len(options)
-            if special_cost(options[i]) <= affordable:
+            if PRICES.special_cost(options[i]) <= affordable:
                 self.special = options[i]
                 return
 
     def to_dict(self) -> dict:
         return {"levels": dict(self.levels), "momentum": self.momentum, "special": self.special}
 
+    def toggle_momentum(self) -> None:
+        """Switch momentum on or off, if the points left cover the price difference."""
+        extra = PRICES.momentum_cost(not self.momentum) - PRICES.momentum_cost(self.momentum)
+        if extra <= self.points_left:
+            self.momentum = not self.momentum
+
     @classmethod
-    def from_dict(cls, data: dict) -> "Loadout":
-        """Build a loadout, raising ValueError unless it is within the rules."""
+    def from_dict(cls, data: dict, check_budget: bool = True) -> "Loadout":
+        """Build a loadout, raising ValueError unless it is within the rules. With
+        check_budget False, a ship over the point budget is accepted as it is."""
         try:
             levels = {s.key: int(data["levels"][s.key]) for s in STATS}
             momentum = bool(data["momentum"])
@@ -113,8 +142,10 @@ class Loadout:
         if special not in SPECIAL_OPTIONS:
             raise ValueError(f"unknown special ability: {special!r}")
         loadout = cls(levels, momentum, special)
-        if any(not 0 <= levels[s.key] <= s.max_level for s in STATS) or loadout.points_left < 0:
-            raise ValueError("loadout breaks the point-buy rules")
+        if any(not 0 <= levels[s.key] <= s.max_level for s in STATS):
+            raise ValueError("stat level out of range")
+        if check_budget and loadout.points_left < 0:
+            raise ValueError("loadout is over the point budget")
         return loadout
 
 
@@ -123,9 +154,11 @@ def load_loadouts() -> list[Loadout]:
     try:
         data = json.loads(SAVE_FILE.read_text())
         for i, d in enumerate(data[:2]):
-            loadouts[i] = Loadout.from_dict(d)
+            loadouts[i] = Loadout.from_dict(d, check_budget=False)
     except (OSError, ValueError, TypeError, KeyError):
         pass  # missing, old-format or tampered file: use fresh ships
+    for loadout in loadouts:
+        loadout.fit_budget()  # prices may have changed since it was saved
     return loadouts
 
 
@@ -165,12 +198,13 @@ class PlayerPanel:
                 self.loadout.cycle_special(1 if action == "right" else -1, self.specials)
                 return
             if self.row == MOMENTUM_ROW:
-                self.loadout.momentum = not self.loadout.momentum
+                self.loadout.toggle_momentum()
                 return
             stat = STATS[self.row]
             key = stat.key
             level = self.loadout.levels[key]
-            if action == "right" and level < stat.max_level and self.loadout.points_left >= stat.cost:
+            if (action == "right" and level < stat.max_level
+                    and self.loadout.points_left >= PRICES.step_cost(key, level)):
                 self.loadout.levels[key] = level + 1
             elif action == "left" and level > 0:
                 self.loadout.levels[key] = level - 1
@@ -183,12 +217,12 @@ class PlayerPanel:
         surface.blit(title, title.get_rect(midtop=(rect.centerx, rect.top + 20)))
 
         left = self.loadout.points_left
-        points = font.render(f"Points left: {left} / {BUDGET}", True,
+        points = font.render(f"Points left: {left} / {PRICES.budget}", True,
                              color if left else (170, 170, 185))
         surface.blit(points, points.get_rect(midtop=(rect.centerx, rect.top + 78)))
 
         y = rect.top + 120
-        pip_x, pip_w, pip_gap = rect.left + 190, 14, 4
+        pip_x, pips_w, pip_gap = rect.left + 180, 140, 3
         for i in range(ROWS):
             selected = i == self.row and not self.ready
             text_color = (255, 255, 255) if selected else (170, 170, 185)
@@ -196,17 +230,23 @@ class PlayerPanel:
                 pygame.draw.rect(surface, (40, 40, 60), (rect.left + 16, y - 6, rect.width - 32, 36),
                                  border_radius=4)
             if i == MOMENTUM_ROW:
-                label, value = "Momentum", ("on" if self.loadout.momentum else "off") + "  (free)"
+                on = self.loadout.momentum
+                label, value = "Momentum", f"{'on' if on else 'off'}  ({PRICES.momentum_cost(on)} pts)"
             elif i == SPECIAL_ROW:
                 special = self.loadout.special
                 label = "Special"
-                value = f"{ABILITIES[special].name}  ({special_cost(special)} pts)" if special else "none"
+                value = f"{ABILITIES[special].name}  ({PRICES.special_cost(special)} pts)" if special else "none"
             else:
                 stat = STATS[i]
                 level = self.loadout.levels[stat.key]
                 label, value = stat.label, stat.fmt(stat.value(level))
-                # A pip per level, wider for stats that cost more per level.
-                w = stat.cost * pip_w + (stat.cost - 1) * pip_gap
+                if selected:
+                    # What the next level costs and what selling one gives back.
+                    buy = f"+{PRICES.step_cost(stat.key, level)}" if level < stat.max_level else "max"
+                    sell = f"-{PRICES.step_cost(stat.key, level - 1)}" if level else "min"
+                    value = f"{value}  {buy} / {sell}"
+                # One pip per level; every row's pips span the same width.
+                w = (pips_w - (stat.max_level - 1) * pip_gap) / stat.max_level
                 for k in range(stat.max_level):
                     pip = (pip_x + k * (w + pip_gap), y + 2, w, 16)
                     pygame.draw.rect(surface, color if k < level else dim, pip,
@@ -266,5 +306,6 @@ class ConfigScreen:
         for i, panel in enumerate(self.panels):
             rect = pygame.Rect(margin + i * (panel_w + gap), 100, panel_w, h - 160)
             panel.draw(surface, rect, self.font, self.big_font)
-        hint = self.font.render("Both players press fire to start    Esc quit", True, (110, 110, 130))
+        hint = self.font.render(f"Both players press fire to start    Prices v{PRICES.version}    Esc quit", True,
+                                (110, 110, 130))
         surface.blit(hint, hint.get_rect(midbottom=(w / 2, h - 16)))

@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 class SpecialAbility(ABC):
     key: ClassVar[str]    # id used in saves and over the network
     name: ClassVar[str]   # shown on the setup screen and HUD
-    cost: ClassVar[int]   # setup points
     network_only: ClassVar[bool] = False  # True to offer it only in LAN play
     passive: ClassVar[bool] = False       # True if it works without the special key
     # Attributes sent over LAN every frame so the other PC can draw this ability.

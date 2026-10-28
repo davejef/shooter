@@ -13,6 +13,7 @@ from . import settings
 from .ai import SimpleAI
 from .bullet import Bullet
 from . import net as netplay
+from . import config_screen
 from .config_screen import ConfigScreen, Loadout, load_loadouts, save_loadouts
 from .ship import Ship, ShipInput
 
@@ -169,6 +170,9 @@ class Game:
         if isinstance(self.net, netplay.Host):
             for msg in self.net.poll():
                 kind = msg.get("t")
+                if kind == "connect":
+                    # Both PCs must buy ships from the same price list: this one's.
+                    self.net.send({"t": "prices", "table": config_screen.PRICES.to_dict()}, droppable=False)
                 if kind in ("connect", "disconnect"):
                     # Back to setup for a fresh match; Blue keeps any choices already made.
                     self.wins = [0, 0]
@@ -178,9 +182,11 @@ class Game:
                     self.setup.panels[1].ready = False
                 elif kind == "hello" and self.setup is not None:
                     try:
-                        self.setup.panels[1].loadout = Loadout.from_dict(msg.get("loadout"))
+                        loadout = Loadout.from_dict(msg.get("loadout"), check_budget=False)
+                        loadout.fit_budget()  # Red may have saved it under other prices
+                        self.setup.panels[1].loadout = loadout
                     except ValueError:
-                        pass  # not within the point budget: Red starts from a fresh ship
+                        pass  # broken: Red starts from a fresh ship
                 elif kind == "action" and msg.get("a") in MENU_ACTIONS:
                     self.menu_action(1, msg["a"])
                 elif kind == "cmd":
@@ -189,7 +195,11 @@ class Game:
                 self.setup.banner = ("" if self.net.connected else
                                      f"Waiting for Red to join: python main.py --join {self.net.address}")
         elif isinstance(self.net, netplay.Client):
-            snapshots = [m for m in self.net.poll() if m.get("t") == "snapshot"]
+            messages = self.net.poll()
+            for m in messages:
+                if m.get("t") == "prices":
+                    config_screen.use_prices(m["table"])
+            snapshots = [m for m in messages if m.get("t") == "snapshot"]
             if snapshots:
                 netplay.apply_snapshot(self, snapshots[-1])  # only the latest matters
             if self.net.connected:

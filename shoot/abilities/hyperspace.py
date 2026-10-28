@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 class Hyperspace(TriggeredAbility):
     key = "hyperspace"
     name = "Hyperspace"
-    cost = 2
     cooldown = 6.0
     duration = 0.4  # how long the arrival flash shows
 

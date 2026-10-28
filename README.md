@@ -14,17 +14,22 @@ python main.py
 ## Ship setup
 
 The game opens on a setup screen with one panel per player. Ships are built with point buy:
-each player has **24 points** to spend on hit points, speed, turn speed, bullet speed and
-fire rate, which is exactly what the default ship costs. Momentum is a free on/off choice.
-An optional special ability costs 2 points, so you sell some stats to afford one.
+each player has **100 points** to spend on hit points, speed, turn speed, bullet speed and
+fire rate, momentum (on or off) and an optional special ability. A fresh ship costs exactly 100.
 
-| Stat         | Range        | Default | Cost              |
-|--------------|--------------|---------|-------------------|
-| Hit points   | 1 to 5       | 3       | 2 points per HP   |
-| Speed        | 200 to 600   | 400     | 1 point per 40    |
-| Turn speed   | 120 to 320°/s| 220°/s  | 1 point per 20°/s |
-| Bullet speed | 300 to 800   | 550     | 1 point per 50    |
-| Fire rate    | 2 to 6/s     | 4/s     | 1 point per 0.4/s |
+Prices come from `prices.json` (see [Prices](#prices) below), so they can change as the game is
+rebalanced. Each level of a stat has its own price, and higher levels cost more. On the setup
+screen the selected stat shows what the next level costs and what selling one gives back.
+
+| Stat         | Range        | Default | Price per level (v1)            |
+|--------------|--------------|---------|---------------------------------|
+| Hit points   | 1 to 5       | 3       | 9, 12, 15, 18                   |
+| Speed        | 200 to 600   | 400     | 3, 3, 4, 4, 5, 5, 6, 6, 7, 7    |
+| Turn speed   | 120 to 320°/s| 220°/s  | as speed                        |
+| Bullet speed | 300 to 800   | 550     | as speed                        |
+| Fire rate    | 2 to 6/s     | 4/s     | as speed                        |
+| Momentum     | on / off     | on      | on 3, off 0                     |
+| Special      |              | none    | 8 each                          |
 
 | Special      | Effect                                              | Recharge |
 |--------------|-----------------------------------------------------|----------|
@@ -41,7 +46,8 @@ An optional special ability costs 2 points, so you sell some stats to afford one
 | Ready        | Space   | Enter         |
 
 The match starts when both players are ready. Choices are saved to `players.json` and
-loaded next time.
+loaded next time. If prices have changed since, a saved ship that no longer fits the budget
+has levels sold until it does.
 
 ## Controls
 
@@ -81,14 +87,27 @@ Each player can use either WASD + Space + Left Shift or the arrow keys + Enter +
 The host runs the game, so Red may feel a few milliseconds of lag on wifi.
 If port 50007 is taken, pick another with `--port` on both PCs.
 
+## Prices
+
+`prices.json` holds the live price table: the budget, the price of every level step of each
+stat, momentum on and off, and each special. Every version is also kept in `prices/`
+(`v0001.json`, `v0002.json`, ...), so any change can be undone:
+
+```
+python -m shoot.prices           show the live version and the saved ones
+python -m shoot.prices --use 1   make version 1 live again
+```
+
+In LAN play the host's prices are used: the host sends its table to the joiner when it
+connects. The setup screen shows which version is in use.
+
 ## Tuning
 
-The point budget (`BUDGET`) and each stat's range, levels, default and cost (`STATS`) are
-in `shoot/config_screen.py`. Screen size and the
-wraparound default are in `shoot/settings.py`.
+Each stat's range, number of levels and default (`STATS`) are in `shoot/config_screen.py`,
+and its prices are in `prices.json`. Screen size and the wraparound default are in `shoot/settings.py`.
 
-To add a special ability, subclass `SpecialAbility` in a new module in the `shoot/abilities/` package: set `key`,
-`name` and `cost`, implement `update(ship, dt, held)` and `meter`, and override
+To add a special ability, subclass `SpecialAbility` in a new module in the `shoot/abilities/` package: set `key`
+and `name` (its price goes in `prices.json`; until then it costs 8), implement `update(ship, dt, held)` and `meter`, and override
 `absorbs_hit()`, `draw()` or `visibility()` if needed. Set `network_only = True` for an
 ability that only makes sense with two screens. Other hooks: `images()`, `extra_shots()`, `intercept()`
 and `public_positions()` (see `mirror_image.py`). For a press-to-fire power with a recharge, subclass

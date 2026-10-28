@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 class MirrorImage(SpecialAbility):
     key = "mirror"
     name = "Mirror image"
-    cost = 2
     network_only = True
     passive = True
     SLOTS = 3

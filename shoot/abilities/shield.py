@@ -16,7 +16,6 @@ class Shield(SpecialAbility):
 
     key = "shield"
     name = "Shield"
-    cost = 2
     CAPACITY = 3.0  # seconds of shield per round; it does not recharge
     STATE = ("energy", "up")
 

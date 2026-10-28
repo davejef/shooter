@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 class Cloak(SpecialAbility):
     key = "cloak"
     name = "Cloak"
-    cost = 2
     network_only = True
     CAPACITY = 5.0     # seconds of cloak per round; it does not recharge
     OWN_ALPHA = 0.3    # how visible the ship is on its own player's screen while cloaked

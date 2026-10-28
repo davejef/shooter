@@ -4,7 +4,8 @@ The joining PC (always Red) sends its inputs and menu actions to the host, and t
 host sends back a snapshot of the world every frame, which the joiner just draws.
 Messages are JSON objects, one per line, over a single TCP connection.
 
-Host -> client: {"t": "snapshot", ...}         see snapshot()
+Host -> client: {"t": "prices", "table": {...}}  the host's price table, sent on connect
+                {"t": "snapshot", ...}         see snapshot()
 Client -> host: {"t": "hello", "loadout": {...}}  the joiner's saved ship, sent once
                 {"t": "input", "turn", "thrust", "fire", "special"}
                 {"t": "action", "a": <Controls field>}   setup screen
@@ -135,9 +136,10 @@ class Host:
                 events.append(msg)
         return events
 
-    def send(self, msg: dict) -> None:
+    def send(self, msg: dict, droppable: bool = True) -> None:
+        """Send to the joiner. Droppable messages (snapshots) are skipped if it falls behind."""
         if self.connected:
-            self.conn.send(msg, droppable=True)
+            self.conn.send(msg, droppable=droppable)
 
 
 class Client:
@@ -201,7 +203,7 @@ def apply_snapshot(game, snap: dict) -> None:
         if game.setup is None:
             game.open_setup()
         for panel, p in zip(game.setup.panels, snap["setup"]):
-            panel.loadout = Loadout.from_dict(p["loadout"])
+            panel.loadout = Loadout.from_dict(p["loadout"], check_budget=False)  # the host checked it
             panel.row = p["row"]
             panel.ready = p["ready"]
     elif game.setup is not None:

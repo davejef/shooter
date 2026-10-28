@@ -12,7 +12,6 @@ if TYPE_CHECKING:
 class SpreadShot(TriggeredAbility):
     key = "spread"
     name = "Spread shot"
-    cost = 2
     cooldown = 5.0
     ANGLES = (-24, -12, 0, 12, 24)
 
