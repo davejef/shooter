@@ -9,15 +9,21 @@ whenever a bullet leaving the nose now would meet the enemy.
 
 It only knows what a person on the opponent's screen would: a cloaked ship is out of sight
 (it guesses from where it was last seen and from the bullets it fires), and against Mirror
-image it can't tell the identical ships apart.
+image it can't tell the identical ships apart. And like a person it reacts late: it sees the
+enemy and the bullets as they were a reaction time ago (carried forward as if nothing had
+changed since), so a new bullet or a sudden turn reaches it a moment late, and so does
+everything it does about them, Shield and other specials included. Its own ship it knows
+at once, the way a player knows what keys they are pressing.
 
 The strongest play is the "hard" skill; "normal" and "easy" are the same pilot with slower
 reactions, worse aim and a shorter look-ahead.
 """
 
+import collections
+
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pygame.math import Vector2
 
@@ -25,23 +31,24 @@ from . import settings
 from .bullet import Bullet
 from .ship import Ship, ShipInput
 
-AI_VERSION = 2  # bump when the pilot changes, so self-play prices only use rounds it played
+AI_VERSION = 3  # bump when the pilot changes, so self-play prices only use rounds it played
 
 
 @dataclass(frozen=True)
 class Skill:
     name: str
-    think_interval: float  # s between plans: its reaction time
+    reaction: float        # s from something happening to it being seen and acted on
+    think_interval: float  # s between plans, i.e. between changes of mind
     aim_error: float       # degrees its aim can be off, chosen afresh with each plan
     horizon: float         # s it looks ahead when comparing plans
 
 
 SKILLS = {s.name: s for s in (
     # Easy and normal are tuned against the first AI (ai_baseline.py) in the arena: easy wins
-    # about 30% against it, normal about 50%, hard about 90%.
-    Skill("easy", think_interval=0.7, aim_error=30.0, horizon=0.2),
-    Skill("normal", think_interval=0.4, aim_error=18.0, horizon=0.3),
-    Skill("hard", think_interval=0.1, aim_error=0.0, horizon=0.6),
+    # about 30% against it, normal about 50%, hard about 65% (that one reacts instantly).
+    Skill("easy", reaction=0.3, think_interval=0.4, aim_error=14.0, horizon=0.3),
+    Skill("normal", reaction=0.25, think_interval=0.25, aim_error=6.0, horizon=0.4),
+    Skill("hard", reaction=0.2, think_interval=0.1, aim_error=0.0, horizon=0.6),
 )}
 DEFAULT_SKILL = "hard"
 
@@ -89,6 +96,39 @@ def intercept_time(dx: float, dy: float, wx: float, wy: float, speed: float) -> 
     root = math.sqrt(disc)
     times = [t for t in ((-b - root) / (2 * a), (-b + root) / (2 * a)) if t > 0]
     return min(times) if times else None
+
+
+@dataclass
+class SeenBullet:
+    pos: Vector2
+    vel: Vector2
+    age: float        # s since it was fired
+    life_left: float  # s before it vanishes
+    mine: bool
+
+
+@dataclass
+class Glimpse:
+    """What a person would have seen of the enemy and the bullets at one moment."""
+    time: float
+    sightings: list[Vector2]  # where the enemy appears to be: none if hidden, several if look-alikes
+    vel: Vector2
+    angle: float
+    hp: int
+    shield_up: bool
+    bullets: list[SeenBullet] = field(default_factory=list)
+
+    def carried_forward(self, dt: float) -> "Glimpse":
+        """The same scene dt seconds later, as if everything kept going the way it was."""
+        def wrap(p: Vector2) -> Vector2:
+            if settings.WRAPAROUND:
+                p.x %= settings.SCREEN_WIDTH
+                p.y %= settings.SCREEN_HEIGHT
+            return p
+        return Glimpse(self.time + dt, [wrap(p + self.vel * dt) for p in self.sightings], self.vel,
+                       self.angle, self.hp, self.shield_up,
+                       [SeenBullet(wrap(b.pos + b.vel * dt), b.vel, b.age + dt, b.life_left - dt, b.mine)
+                        for b in self.bullets if b.life_left > dt])
 
 
 class SimShip:
@@ -151,10 +191,10 @@ class ComputerPilot:
     CLOAK_HOLD = 0.6        # s it keeps a cloak up once it goes on
     EXPOSURE_TIME = 0.6     # s; it cloaks if the enemy could aim and hit it quicker than this
 
-    def __init__(self, me: Ship, enemy: Ship, skill: str = DEFAULT_SKILL):
+    def __init__(self, me: Ship, enemy: Ship, skill: str | Skill = DEFAULT_SKILL):
         self.me = me
         self.enemy = enemy
-        self.skill = SKILLS[skill]
+        self.skill = SKILLS[skill] if isinstance(skill, str) else skill
         self.think_timer = random.uniform(0, self.skill.think_interval)  # so two pilots don't move in step
         self.aim_error = 0.0
         self.plan: tuple[int, int] = (AIM, OFF)
@@ -163,26 +203,53 @@ class ComputerPilot:
         self.ram_time = math.inf  # how soon the best plan rams the enemy (inf if never)
         self.cloak_time = 0.0     # s our cloak has been up
         # What it believes about the enemy: where it is and how it is moving.
+        self.memory: collections.deque[Glimpse] = collections.deque()  # what it saw, oldest first
+        self.view: Glimpse | None = None  # what it has taken in by now
+        self.clock = 0.0                  # s since the round started
         self.seen_pos = Vector2(enemy.pos)
         self.seen_vel = Vector2()
-        self.sightings: list[Vector2] = [enemy.pos]  # everywhere the enemy appears to be
+        self.sightings: list[Vector2] = [Vector2(enemy.pos)]  # everywhere the enemy appears to be
         self.unseen_time = 0.0
         self.clue_pos: Vector2 | None = None  # where a bullet showed the hidden enemy to be
         self.clue_age = 0.0                   # s since then (or since last seen)
         self.pick: int | None = None     # which look-alike it is chasing
         self.sightings_count = 0
-        self.watched_ability = None      # the enemy ability the above belongs to (new each round)
 
     # Perception
 
-    def _perceive(self, bullets: list[Bullet], dt: float) -> None:
-        """Update what it believes about the enemy from what is visible this frame."""
+    def new_round(self) -> None:
+        """Forget what it saw last round."""
+        self.memory.clear()
+        self.clock = 0.0
+        self.pick, self.sightings_count = None, 0
+        self.seen_pos, self.seen_vel = Vector2(self.enemy.pos), Vector2()
+        self.sightings = [Vector2(self.enemy.pos)]
+        self.unseen_time = self.clue_age = 0.0
+        self.clue_pos = None
+        self.danger = self.ram_time = math.inf
+        self.cloak_time = 0.0
+
+    def _look(self, bullets: list[Bullet], dt: float) -> Glimpse:
+        """Note what is on screen now, and return what it has had time to take in: the scene
+        a reaction time ago, carried forward to now."""
         enemy = self.enemy
-        if enemy.ability is not self.watched_ability:  # new round
-            self.watched_ability, self.pick, self.sightings_count = enemy.ability, None, 0
-            self.unseen_time = self.clue_age = 0.0
-            self.clue_pos = None
-        sightings = enemy.ability.sightings(enemy) if enemy.ability else [enemy.pos]
+        self.clock += dt
+        ability = enemy.ability
+        self.memory.append(Glimpse(
+            self.clock, [Vector2(p) for p in (ability.sightings(enemy) if ability else [enemy.pos])],
+            Vector2(enemy.vel), enemy.angle, enemy.hp,
+            bool(ability and ability.key == "shield" and ability.up),
+            [SeenBullet(Vector2(b.pos), Vector2(b.vel), b.age, b.owner.type.bullet_lifetime - b.age,
+                        b.owner is self.me) for b in bullets]))
+        cutoff = self.clock - self.skill.reaction
+        while len(self.memory) > 1 and self.memory[1].time <= cutoff:
+            self.memory.popleft()
+        seen = self.memory[0]
+        return seen.carried_forward(self.clock - seen.time) if seen.time < self.clock else seen
+
+    def _perceive(self, view: Glimpse, dt: float) -> None:
+        """Update what it believes about the enemy from what it has seen."""
+        sightings = view.sightings
         if sightings:
             if self.pick is None or len(sightings) != self.sightings_count:
                 self.pick = random.randrange(len(sightings))  # a look-alike vanished: choose again
@@ -191,19 +258,20 @@ class ComputerPilot:
                 self.pick = self._easiest_target(sightings)
             self.sightings = sightings
             self.seen_pos = Vector2(sightings[self.pick])
-            self.seen_vel = Vector2(enemy.vel)
+            self.seen_vel = Vector2(view.vel)
             self.unseen_time = self.clue_age = 0.0
             self.clue_pos = None
             return
         # Out of sight: assume it carried on the way it was going, unless it gives itself away
         # by firing. A new bullet shows where its gun was a moment ago, and two of them how fast
         # it is moving.
+        enemy = self.enemy
         self.unseen_time += dt
         self.clue_age += dt
         self.sightings = []
         self.seen_pos += self.seen_vel * dt
-        for b in bullets:
-            if b.owner is enemy and b.age <= dt * 1.5:
+        for b in view.bullets:
+            if not b.mine and b.age - self.skill.reaction <= dt * 1.5:
                 direction = (b.vel - self.seen_vel)
                 nose = direction.normalize() * (enemy.type.radius + 6) if direction.length() > 0 else Vector2()
                 origin = b.pos - b.vel * b.age - nose
@@ -233,14 +301,15 @@ class ComputerPilot:
         me = self.me
         if not me.alive or not self.enemy.alive:
             return ShipInput()
-        self._perceive(bullets, dt)
+        self.view = self._look(bullets, dt)
+        self._perceive(self.view, dt)
 
         self.think_timer -= dt
         self.plan_age += dt
         if self.think_timer <= 0:
             self.think_timer = self.skill.think_interval
             self.aim_error = random.uniform(-self.skill.aim_error, self.skill.aim_error)
-            self.plan, self.danger, self.ram_time = self._choose_plan(bullets)
+            self.plan, self.danger, self.ram_time = self._choose_plan(self.view.bullets)
             self.plan_age = 0.0
 
         turn, thrust = self.plan
@@ -310,16 +379,16 @@ class ComputerPilot:
         reach = self.enemy.type.radius + Bullet.RADIUS + slack
         return tc if mx * mx + my * my < reach * reach else None
 
-    def _threats(self, bullets: list[Bullet], horizon: float) -> list[tuple[float, float, float, float, float]]:
+    def _threats(self, bullets: list[SeenBullet], horizon: float) -> list[tuple[float, float, float, float, float]]:
         """Enemy bullets that could reach us within the horizon: (x, y, vx, vy, time left),
         with positions as from _near."""
         me = self.me
         reach = me.type.radius + Bullet.RADIUS + me.type.max_speed * horizon + 10
         out = []
         for b in bullets:
-            if b.owner is me:
+            if b.mine:
                 continue
-            life = min(b.owner.type.bullet_lifetime - b.age, horizon)
+            life = min(b.life_left, horizon)
             dx, dy = _wrap(b.pos.x - me.pos.x, b.pos.y - me.pos.y)
             rvx, rvy = b.vel.x - me.vel.x, b.vel.y - me.vel.y
             a = rvx * rvx + rvy * rvy
@@ -328,7 +397,7 @@ class ComputerPilot:
                 out.append((me.pos.x + dx, me.pos.y + dy, b.vel.x, b.vel.y, life))
         return out
 
-    def _choose_plan(self, bullets: list[Bullet]) -> tuple[tuple[int, int], float, float]:
+    def _choose_plan(self, bullets: list[SeenBullet]) -> tuple[tuple[int, int], float, float]:
         """The best plan, how soon it gets hit and how soon it rams (inf for never)."""
         horizon = self.skill.horizon
         threats = self._threats(bullets, horizon)
@@ -347,12 +416,12 @@ class ComputerPilot:
     def _ram_value(self) -> float:
         """What ramming the enemy now would be worth: both ships lose 2 hit points, except
         one behind a shield."""
-        me, enemy = self.me, self.enemy
+        me = self.me
         mine = 0 if self._shield_left() > 0.3 else 2
-        theirs = 0 if (enemy.ability and enemy.ability.key == "shield" and enemy.ability.up) else 2
+        theirs = 0 if self.view.shield_up else 2
         if mine >= me.hp:
             return -self._loss(mine, me.hp)  # even taking the enemy along is only a draw
-        return self._loss(theirs, enemy.hp) - self._loss(mine, me.hp) - self.RAM_RISK
+        return self._loss(theirs, self.view.hp) - self._loss(mine, me.hp) - self.RAM_RISK
 
     def _loss(self, points: int, hp: int) -> float:
         """How bad losing this many hit points is, for a ship that has hp of them."""
@@ -466,6 +535,6 @@ class ComputerPilot:
         for pos in self.sightings:
             d = wrapped_delta(pos, me.pos)
             if d.length() < enemy.type.bullet_speed * enemy.type.bullet_lifetime:
-                off = abs(angle_diff(enemy.angle, Vector2(1, 0).angle_to(d)))
+                off = abs(angle_diff(self.view.angle, Vector2(1, 0).angle_to(d)))
                 best = min(best, off / enemy.type.turn_speed + d.length() / enemy.type.bullet_speed)
         return best

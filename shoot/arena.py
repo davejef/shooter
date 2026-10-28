@@ -4,6 +4,7 @@
     python -m shoot.arena --a normal --b easy  any two of: hard, normal, easy, baseline
     python -m shoot.arena --scenarios          also a few fixed match-ups, pilot A against itself
     python -m shoot.arena --b hard --set PREFERRED_RANGE=350   try a setting on pilot A only
+    python -m shoot.arena --a normal --set aim_error=10        or a skill value
 
 Ships are random builds from self-play. Each build pair is played twice with the pilots
 swapping ships and sides, and in half the pairs both ships are the same build, so neither
@@ -120,14 +121,16 @@ def main() -> None:
     parser.add_argument("--workers", type=int, help="processes to use (default: one per CPU core)")
     parser.add_argument("--scenarios", action="store_true", help="also play fixed match-ups, A against A")
     parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
-                        help="give pilot A another value for one of ComputerPilot's settings, "
-                             "e.g. --set PREFERRED_RANGE=350")
+                        help="give pilot A another value for one of ComputerPilot's settings or its "
+                             "skill's, e.g. --set PREFERRED_RANGE=350 or --set reaction=0.15")
     args = parser.parse_args()
-    from .ai import ComputerPilot
+    import dataclasses
+    from .ai import ComputerPilot, Skill
     tweaks = {name: float(value) for name, value in (t.split("=", 1) for t in args.set)}
+    skill_fields = {f.name for f in dataclasses.fields(Skill)} - {"name"}
     for name in tweaks:
-        if not name.isupper() or not hasattr(ComputerPilot, name):
-            parser.error(f"ComputerPilot has no setting {name}")
+        if not (name.isupper() and hasattr(ComputerPilot, name)) and name not in skill_fields:
+            parser.error(f"ComputerPilot and its skill have no setting {name}")
 
     start = time.time()
     s = run(args.a, args.b, args.games, args.workers, tweaks=(tweaks, {}))

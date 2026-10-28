@@ -81,7 +81,10 @@ shot that will land, keeping a good distance and avoiding rams it would lose. It
 a bullet leaving the nose now would meet the target, and uses its special when it helps
 (Shield or Hyperspace when a hit can't be dodged, Cloak when you have it in your sights).
 It only sees what a person would: a cloaked ship is out of sight, though its bullets give
-away where it was, and it can't tell a Mirror image decoy from the real ship.
+away where it was, and it can't tell a Mirror image decoy from the real ship. It also reacts
+like a person: it sees the enemy and the bullets about a fifth of a second late (a little
+more on the lower levels), so a sudden turn or a shot from close up can catch it out, and
+its Shield and other specials go up late too.
 
 ### Testing the computer player
 

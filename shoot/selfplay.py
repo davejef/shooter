@@ -48,13 +48,17 @@ def random_loadout(rng: random.Random, spend: float = 1.0) -> Loadout:
 
 def make_pilot(name: str, me, enemy, tweaks: dict | None = None):
     """A computer pilot: "baseline" for the first AI, else a skill level of the current one,
-    optionally with some of its settings changed (see arena.py --set)."""
+    optionally with some of its settings or skill values changed (see arena.py --set)."""
     if name == "baseline":
         from .ai_baseline import SimpleAI
         return SimpleAI(me, enemy)
-    from .ai import ComputerPilot
-    pilot = type("TunedPilot", (ComputerPilot,), tweaks) if tweaks else ComputerPilot
-    return pilot(me, enemy, name)
+    import dataclasses
+    from .ai import SKILLS, ComputerPilot
+    tweaks = tweaks or {}
+    constants = {k: v for k, v in tweaks.items() if k.isupper()}  # ComputerPilot's, e.g. SHOT_VALUE
+    skill = dataclasses.replace(SKILLS[name], **{k: v for k, v in tweaks.items() if not k.isupper()})
+    pilot = type("TunedPilot", (ComputerPilot,), constants) if constants else ComputerPilot
+    return pilot(me, enemy, skill)
 
 
 def _make_game(pilots: tuple[str, str] = ("hard", "hard"), tweaks: tuple[dict, dict] = ({}, {})):
@@ -68,6 +72,12 @@ def _make_game(pilots: tuple[str, str] = ("hard", "hard"), tweaks: tuple[dict, d
             self.setup = None
             self.pilots = [make_pilot(name, me, enemy, tw)
                            for name, me, enemy, tw in zip(pilots, self.ships, self.ships[::-1], tweaks)]
+
+        def new_round(self):
+            super().new_round()
+            for p in getattr(self, "pilots", []):
+                if hasattr(p, "new_round"):  # the first AI has no memory to clear
+                    p.new_round()
 
         def read_inputs(self):
             return [p.decide(self.bullets, self.frame_dt) for p in self.pilots]

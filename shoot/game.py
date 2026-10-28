@@ -97,6 +97,7 @@ class Game:
         names = list(SKILLS)
         skill = names[(names.index(self.ai.skill.name) + 1) % len(names)]
         self.ai = ComputerPilot(self.ships[1], self.ships[0], skill)
+        self.ai.new_round()
         self.show_skill()
 
     def close_setup(self) -> None:
@@ -124,6 +125,8 @@ class Game:
         self.winner: int | None = None  # index of winning player, -1 for a draw
         self.round_over_time = 0.0
         self.round_time = 0.0
+        if self.ai:
+            self.ai.new_round()
 
     def read_inputs(self) -> list[ShipInput]:
         if isinstance(self.net, netplay.Host):
