@@ -1,0 +1,28 @@
+{
+  "version": 54,
+  "budget": 100,
+  "note": "Rebalanced from 26974 rounds",
+  "changes": [
+    "Hit points level 3 8->9",
+    "Turn speed level 5 2->1",
+    "Momentum on 0->0, off 22->23"
+  ],
+  "stats": {
+    "hit_points": [12, 10, 9, 8],
+    "speed": [3, 2, 1, 1, 1, 1, 1, 1, 1, 1],
+    "turn_speed": [3, 2, 1, 1, 1, 1, 1, 1, 1, 1],
+    "bullet_speed": [1, 2, 2, 1, 1, 2, 1, 1, 1, 1],
+    "fire_rate": [2, 3, 2, 2, 1, 2, 1, 1, 1, 1]
+  },
+  "momentum": {
+    "on": 0,
+    "off": 23
+  },
+  "specials": {
+    "shield": 29,
+    "spread": 5,
+    "hyperspace": 5,
+    "cloak": 14,
+    "mirror": 11
+  }
+}
