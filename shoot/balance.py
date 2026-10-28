@@ -11,8 +11,8 @@ estimates how much each one adds to the chance of winning:
     P(Blue wins) = sigmoid(side bias for the mode + sum of w_i * (Blue has i - Red has i))
 
 When prices are right, each w_i is the same multiple (theta) of its price, so w_i / theta is the
-item's fair price in points. Every ship spends the whole budget, so theta can't be read off
-directly; it is set so that the items ships actually buy are, on average, worth what they cost.
+item's fair price in points. Theta (what a point is worth) is fitted too, which needs ships that
+cost different amounts: self-play builds spend a random 60-100% of the budget for this.
 
 To stay stable with little data, the fit pulls each w_i towards theta * price and neighbouring
 level steps of a stat towards each other (L2 penalties), and each rebalance moves a price only
@@ -29,7 +29,7 @@ from . import config_screen, match_log, prices
 from .abilities import ABILITIES
 from .config_screen import STATS
 
-MIN_NEW_ROUNDS = 1000  # rounds played on the current prices before the next rebalance
+MIN_NEW_ROUNDS = 5000  # rounds played on the current prices before the next rebalance
 MAX_ROUNDS = 30000     # only the most recent rounds are used
 HUMAN_WEIGHT = 2.0     # a round people played counts as this many self-play rounds
 PRIOR_STRENGTH = 20.0  # L2 pull towards the current prices; higher = slower to believe the data
@@ -101,7 +101,7 @@ def fit(rounds: list[dict], table: prices.PriceTable) -> Fit | None:
     all_items = items()
     n = len(all_items)
     p = np.array([it.price(table) for it in all_items], dtype=float)
-    rows, ys, weights, mode_rows, usage = [], [], [], [], np.zeros(n)
+    rows, ys, weights, mode_rows = [], [], [], []
     draws = 0
     for r in rounds:
         try:
@@ -114,56 +114,48 @@ def fit(rounds: list[dict], table: prices.PriceTable) -> Fit | None:
         except (KeyError, TypeError, ValueError, AttributeError):
             continue  # a round logged by an older version, or a broken line
         rows.append([a - b for a, b in zip(*has)])
-        usage += np.array(has[0], dtype=float) + np.array(has[1], dtype=float)
         mode_rows.append([m == mode for m in MODES])
         ys.append(1.0 if r["winner"] == 0 else 0.0)
         weights.append(1.0 if mode == "selfplay" else HUMAN_WEIGHT)
     if len(rows) < 100:
         return None
-    x = np.hstack([np.array(rows, dtype=float), np.array(mode_rows, dtype=float)])
+    d = np.array(rows, dtype=float)
+    # Parameters: theta, then delta_i for each item (w_i = theta * price_i + delta_i), then side biases.
+    x = np.hstack([(d @ p)[:, None], d, np.array(mode_rows, dtype=float)])
     y, sw = np.array(ys), np.array(weights)
-    usage /= 2 * len(rows)  # how often a ship has each item
 
-    # Penalty matrix on the item weights: towards the prior, and neighbouring steps together.
-    penalty = np.zeros((x.shape[1], x.shape[1]))
-    penalty[:n, :n] = np.eye(n)
+    # Penalties on the deltas: towards zero (the current prices), and neighbouring steps together.
+    k = x.shape[1]
+    penalty = np.zeros((k, k))
+    penalty[1:1 + n, 1:1 + n] = PRIOR_STRENGTH * np.eye(n)
     for i in range(n - 1):
         a, b = all_items[i], all_items[i + 1]
         if a.kind == b.kind == "stat" and a.key == b.key:
-            diff = np.zeros(x.shape[1])
-            diff[i], diff[i + 1] = 1, -1
-            penalty += SMOOTHING / PRIOR_STRENGTH * np.outer(diff, diff)
-    penalty *= PRIOR_STRENGTH
-    penalty[n:, n:] = np.eye(len(MODES)) * 1e-3  # unused modes would otherwise make the fit singular
+            diff = np.zeros(k)
+            diff[1 + i], diff[2 + i] = 1, -1
+            penalty += SMOOTHING * np.outer(diff, diff)
+    penalty[1 + n:, 1 + n:] = np.eye(len(MODES)) * 1e-3  # unused modes would otherwise make the fit singular
 
-    def solve(prior: np.ndarray, pen: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        beta = np.zeros(x.shape[1])
-        for _ in range(50):  # Newton's method
-            prob = 1 / (1 + np.exp(-(x @ beta)))
-            grad = x.T @ (sw * (y - prob)) - pen @ (beta - prior)
-            hess = (x * (sw * prob * (1 - prob))[:, None]).T @ x + pen
-            step = np.linalg.solve(hess, grad)
-            beta += step
-            if np.abs(step).max() < 1e-8:
-                break
-        return beta, hess
-
-    def value_per_point(w: np.ndarray) -> float:
-        return float(usage @ w) / float(usage @ p)
-
-    # First a loose fit to find the scale, then the real one pulled towards prices at that scale.
-    loose, _ = solve(np.zeros(x.shape[1]), penalty * 0.05)
-    theta = value_per_point(loose[:n])
-    if theta <= 0:
-        return None  # the data doesn't even say upgrades help: don't touch prices
-    beta, hess = solve(np.concatenate([theta * p, np.zeros(len(MODES))]), penalty)
-    theta = value_per_point(beta[:n])
-    if theta <= 0:
-        return None
+    beta = np.zeros(k)
+    for _ in range(50):  # Newton's method
+        prob = 1 / (1 + np.exp(-(x @ beta)))
+        grad = x.T @ (sw * (y - prob)) - penalty @ beta
+        hess = (x * (sw * prob * (1 - prob))[:, None]).T @ x + penalty
+        step = np.linalg.solve(hess, grad)
+        beta += step
+        if np.abs(step).max() < 1e-8:
+            break
+    theta = beta[0]
+    if theta <= 0 or not np.isfinite(beta).all():
+        return None  # the data doesn't even say points help: don't touch prices
     cov = np.linalg.inv(hess)
-    estimates = [Estimate(it, int(p[i]), beta[i] / theta, math.sqrt(max(cov[i, i], 0.0)) / theta)
-                 for i, it in enumerate(all_items)]
-    bias = {m: float(beta[n + k]) for k, m in enumerate(MODES)}
+    estimates = []
+    for i, it in enumerate(all_items):
+        # fair = price + delta / theta; its standard error by the delta method.
+        g = np.zeros(k)
+        g[0], g[1 + i] = -beta[1 + i] / theta**2, 1 / theta
+        estimates.append(Estimate(it, int(p[i]), p[i] + beta[1 + i] / theta, math.sqrt(max(g @ cov @ g, 0.0))))
+    bias = {m: float(beta[1 + n + j]) for j, m in enumerate(MODES)}
     return Fit(estimates, bias, len(rows), draws)
 
 

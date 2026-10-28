@@ -1,7 +1,7 @@
 """Computer-vs-computer games with random ships, to find out which upgrades win.
 
-    python -m shoot.selfplay --games 2000
-    python -m shoot.selfplay --games 2000 --cycles 5   play, rebalance, and repeat 5 times
+    python -m shoot.selfplay
+    python -m shoot.selfplay --cycles 10   play, rebalance, and repeat 10 times
 
 Runs without a window, as fast as the PC allows, on all CPU cores. Every round gives both
 ships a random build that spends the whole budget, and is logged to selfplay.jsonl. After
@@ -20,20 +20,25 @@ from .config_screen import STATS, Loadout, special_options
 
 FPS = 60
 ROUND_LIMIT = 60.0  # seconds of game time before a round counts as a draw
+MIN_SPEND = 0.6     # each ship spends a random 60-100% of the budget
 
 
-def random_loadout(rng: random.Random) -> Loadout:
-    """A random build that spends (nearly) the whole budget. Each stat gets a random weight,
-    so builds range from all-rounders to ships that pour everything into one or two stats."""
+def random_loadout(rng: random.Random, spend: float = 1.0) -> Loadout:
+    """A random build that spends about this fraction of the budget. Each stat gets a random
+    weight, so builds range from all-rounders to ships that pour everything into one or two stats.
+
+    Self-play leaves some points unspent on purpose: if every ship cost the same, the games
+    would show which upgrades beat which, but not how many points an upgrade is worth."""
     prices = config_screen.PRICES
+    unspent = round(prices.budget * (1 - spend))
     loadout = Loadout(levels={s.key: 0 for s in STATS}, momentum=rng.random() < 0.5,
                       special=rng.choice(special_options(networked=True)))
-    if loadout.points_left < 0:
+    if loadout.points_left < unspent:
         loadout.special = None
     weights = {s.key: rng.expovariate(1.0) for s in STATS}
     while True:
         options = [s for s in STATS if loadout.levels[s.key] < s.max_level
-                   and prices.step_cost(s.key, loadout.levels[s.key]) <= loadout.points_left]
+                   and prices.step_cost(s.key, loadout.levels[s.key]) <= loadout.points_left - unspent]
         if not options:
             return loadout
         stat = rng.choices(options, [weights[s.key] for s in options])[0]
@@ -77,7 +82,7 @@ def _worker(args: tuple[int, int]) -> list[dict]:
     game = _make_game()
     rounds = []
     for _ in range(count):
-        loadouts = [random_loadout(rng), random_loadout(rng)]
+        loadouts = [random_loadout(rng, rng.uniform(MIN_SPEND, 1.0)) for _ in range(2)]
         winner, seconds = game.play(loadouts)
         rounds.append(match_log.entry("selfplay", loadouts, winner, seconds, config_screen.PRICES.version))
     return rounds
@@ -102,7 +107,7 @@ def run(games: int, workers: int | None = None, quiet: bool = False) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Computer-vs-computer games to rebalance prices.")
-    parser.add_argument("--games", type=int, default=2000, help="rounds to play (default 2000)")
+    parser.add_argument("--games", type=int, default=5000, help="rounds to play (default 5000)")
     parser.add_argument("--workers", type=int, help="processes to use (default: one per CPU core)")
     parser.add_argument("--cycles", type=int, default=1, help="batches to play, rebalancing after each")
     parser.add_argument("--no-rebalance", action="store_true", help="only collect data")

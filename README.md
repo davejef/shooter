@@ -108,7 +108,7 @@ The game keeps prices balanced by itself. Every finished round is logged with bo
 games people play go to `matches.jsonl` (in LAN play the host logs them), and
 computer-vs-computer games go to `selfplay.jsonl`. Both logs stay on this PC (gitignored).
 
-Once 1000 rounds have been played on the current prices (a round people played counts
+Once 5000 rounds have been played on the current prices (a round people played counts
 double), the next start of the game fits a model of how much each level step, momentum and
 each special adds to the chance of winning. Anything that wins more than its price says gets
 dearer, and anything that wins less gets cheaper. Each rebalance moves a price only part of
@@ -119,13 +119,14 @@ Commit `prices.json` and `prices/` to share them.
 People can't play enough games for this on their own, so the computer plays itself:
 
 ```
-python -m shoot.selfplay --games 2000              about 10 s per 1000 rounds on 4 cores
-python -m shoot.selfplay --games 1500 --cycles 5   play, rebalance, repeat
+python -m shoot.selfplay              5000 rounds, then rebalance (a few seconds on 20 cores)
+python -m shoot.selfplay --cycles 10  play, rebalance, repeat: prices mostly settle in about 10
 python -m shoot.balance --report                   what each upgrade is worth by the data so far
 ```
 
-Self-play uses random builds that spend the whole budget, so every upgrade gets tried in
-many combinations. Prices end up balanced for how the computer plays, which is not quite
+Self-play uses random builds, so every upgrade gets tried in many combinations. Each ship
+spends a random 60-100% of the budget, which is what shows how much a point is worth.
+In tests, two separate samples of 5000 rounds agreed on each price to about 2 points. Prices end up balanced for how the computer plays, which is not quite
 how people play: human rounds count double to pull them back towards that.
 
 ## Tuning
