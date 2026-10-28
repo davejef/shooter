@@ -5,7 +5,8 @@ prices.json at the top of the repo, and every version is also kept in prices/ (v
 v0002.json, ...) so any change can be undone:
 
     python -m shoot.prices             show the live table and the saved versions
-    python -m shoot.prices --use 3     make version 3 the live table again
+    python -m shoot.prices --use 3     bring back version 3's prices (saved as a new version, so
+                                       rebalancing waits for fresh rounds before changing them)
 
 Stat prices are per step: the list for a stat holds the cost of going from level 0 to 1, from
 1 to 2, and so on, so a stat can get dearer (or cheaper) the higher it goes.
@@ -20,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LIVE_FILE = ROOT / "prices.json"
 HISTORY_DIR = ROOT / "prices"
+SEEN_FILE = ROOT / "prices_seen.txt"  # newest version this PC's players were told about
 
 # Used for anything prices.json leaves out, such as a newly added special ability.
 DEFAULT_BUDGET = 100
@@ -39,7 +41,8 @@ class PriceTable:
     stats: dict[str, tuple[int, ...]]  # stat key -> cost of each level step, from level 0 up
     momentum: dict[str, int]           # "on" / "off" -> cost of that choice
     specials: dict[str, int]           # ability key -> cost
-    note: str = ""                     # why this version exists, e.g. what a rebalance changed
+    note: str = ""                     # why this version exists
+    changes: tuple[str, ...] = ()      # what a rebalance changed, biggest first
 
     def stat_cost(self, key: str, level: int) -> int:
         """Total cost of a stat at this level."""
@@ -57,7 +60,7 @@ class PriceTable:
 
     def to_dict(self) -> dict:
         return {"version": self.version, "budget": self.budget, "note": self.note,
-                "stats": {k: list(v) for k, v in self.stats.items()},
+                "changes": list(self.changes), "stats": {k: list(v) for k, v in self.stats.items()},
                 "momentum": dict(self.momentum), "specials": dict(self.specials)}
 
     @classmethod
@@ -79,7 +82,8 @@ class PriceTable:
             momentum = {k: price(data.get("momentum", {}).get(k, v)) for k, v in DEFAULT_MOMENTUM.items()}
             specials = {k: price(data.get("specials", {}).get(k, DEFAULT_SPECIAL)) for k in special_keys}
             return cls(version=int(data.get("version", 0)), budget=price(data.get("budget", DEFAULT_BUDGET)),
-                       stats=stats, momentum=momentum, specials=specials, note=str(data.get("note", "")))
+                       stats=stats, momentum=momentum, specials=specials, note=str(data.get("note", "")),
+                       changes=tuple(str(c) for c in data.get("changes", ())))
         except (TypeError, AttributeError) as e:
             raise ValueError(f"bad price table: {e}") from None
 
@@ -115,14 +119,43 @@ def publish(table: PriceTable) -> PriceTable:
     return new
 
 
-def use_version(version: int) -> None:
-    """Make an old version live again, e.g. to undo a rebalance."""
-    _write(LIVE_FILE, json.loads(history_file(version).read_text()))
+def seen_version() -> int:
+    try:
+        return int(SEEN_FILE.read_text())
+    except (OSError, ValueError):
+        return 0
+
+
+def mark_seen(version: int) -> None:
+    try:
+        SEEN_FILE.write_text(str(version))
+    except OSError:
+        pass
+
+
+def notice(table: PriceTable, most: int = 2) -> str:
+    """A one-line announcement of a price change the players haven't seen yet, or ""."""
+    if table.version <= seen_version():
+        return ""
+    if not table.changes:
+        return f"Prices are now v{table.version}"
+    shown = ", ".join(table.changes[:most])
+    more = len(table.changes) - most
+    return f"New prices v{table.version}: {shown}" + (f" and {more} more (see prices.json)" if more > 0 else "")
+
+
+def use_version(version: int) -> PriceTable:
+    """Bring back an old version's prices, e.g. to undo a rebalance."""
+    data = json.loads(history_file(version).read_text())
+    old = PriceTable(**{**{k: data.get(k) for k in ("version", "budget", "note")},
+                        "stats": {k: tuple(v) for k, v in data["stats"].items()},
+                        "momentum": data["momentum"], "specials": data["specials"]})
+    return publish(PriceTable(**{**old.__dict__, "note": f"Back to the prices of v{version}", "changes": ()}))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Show or roll back the point-buy price table.")
-    parser.add_argument("--use", type=int, metavar="VERSION", help="make this saved version the live table")
+    parser.add_argument("--use", type=int, metavar="VERSION", help="bring back this saved version's prices")
     args = parser.parse_args()
     if args.use is not None:
         if args.use not in versions():
@@ -131,8 +164,10 @@ def main() -> None:
     live = json.loads(LIVE_FILE.read_text()) if LIVE_FILE.exists() else None
     print(f"Live: version {live['version']}  {live.get('note', '')}" if live else "Live: built-in defaults")
     for v in versions():
-        note = json.loads(history_file(v).read_text()).get("note", "")
-        print(f"  v{v}  {note}")
+        data = json.loads(history_file(v).read_text())
+        changes = data.get("changes", [])
+        print(f"  v{v}  {data.get('note', '')}" + (f": {', '.join(changes[:5])}" if changes else "")
+              + (f" and {len(changes) - 5} more" if len(changes) > 5 else ""))
 
 
 if __name__ == "__main__":

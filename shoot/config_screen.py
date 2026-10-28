@@ -283,6 +283,7 @@ class ConfigScreen:
             loadouts = load_loadouts()
         self.panels = [PlayerPanel(i, Loadout.from_dict(l.to_dict()), networked) for i, l in enumerate(loadouts)]
         self.banner = ""  # extra line under the title, e.g. LAN connection status
+        self.notice = prices.notice(PRICES)  # shown in the same place when there is no banner
 
     def handle_action(self, player: int, action: str) -> None:
         self.panels[player].handle_action(action)
@@ -298,8 +299,9 @@ class ConfigScreen:
         w, h = surface.get_size()
         title = self.big_font.render("Ship setup", True, (230, 230, 230))
         surface.blit(title, title.get_rect(midtop=(w / 2, 20)))
-        if self.banner:
-            banner = self.font.render(self.banner, True, (230, 210, 120))
+        line = self.banner or self.notice
+        if line:
+            banner = self.font.render(line, True, (230, 210, 120))
             surface.blit(banner, banner.get_rect(midtop=(w / 2, 72)))
         margin, gap = 40, 40
         panel_w = (w - 2 * margin - gap) / 2

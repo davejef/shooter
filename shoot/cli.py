@@ -16,6 +16,13 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=net.DEFAULT_PORT, help=f"default {net.DEFAULT_PORT}")
     args = parser.parse_args()
 
+    if not args.join:  # a joiner uses the host's prices
+        try:
+            from . import balance
+            balance.auto_rebalance()
+        except ImportError:
+            pass  # numpy not installed: keep the current prices
+
     connection = None
     try:
         if args.host:

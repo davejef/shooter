@@ -59,6 +59,12 @@ class SpecialAbility(ABC):
         (it is then stopped there and does no damage). destroy: whether it was a real hit."""
         return False
 
+    def sightings(self, ship: "Ship") -> list[Vector2]:
+        """Where the opponent can see this ship, for the computer player, which must not know
+        more than a person would: empty while hidden, several places if there are look-alikes.
+        The order must not give away which one is real."""
+        return [ship.pos] if self.visibility(ship, own_view=False) > 0 else []
+
     def public_positions(self, ship: "Ship") -> list[Vector2] | None:
         """Where the opponent's PC should draw this ship when it must not be told the real
         position, or None to send the real position as usual."""

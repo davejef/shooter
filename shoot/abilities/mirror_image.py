@@ -94,6 +94,11 @@ class MirrorImage(SpecialAbility):
         if "real" in state:
             self.real, self.alive, self.disguised = state["real"], state["alive"], None
 
+    def sightings(self, ship: "Ship") -> list[Vector2]:
+        # Formation order: the real slot is random each round, so the order gives nothing away.
+        return [ship.pos if k == self.real else self._slot_pos(ship, k)
+                for k in range(self.SLOTS) if self.alive[k]]
+
     def public_positions(self, ship: "Ship") -> list[Vector2]:
         positions = [Vector2(ship.pos)] + self.decoy_positions(ship)
         random.shuffle(positions)

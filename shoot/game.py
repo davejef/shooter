@@ -13,7 +13,7 @@ from . import settings
 from .ai import SimpleAI
 from .bullet import Bullet
 from . import net as netplay
-from . import config_screen
+from . import config_screen, match_log
 from .config_screen import ConfigScreen, Loadout, load_loadouts, save_loadouts
 from .ship import Ship, ShipInput
 
@@ -90,6 +90,7 @@ class Game:
 
     def close_setup(self) -> None:
         self.loadouts = self.setup.loadouts()
+        config_screen.prices.mark_seen(config_screen.PRICES.version)  # the players have seen the notice
         if self.net:
             # Only remember this PC's own ship; the other PC remembers its own.
             saved = load_loadouts()
@@ -111,6 +112,7 @@ class Game:
         self.particles: list[Particle] = []
         self.winner: int | None = None  # index of winning player, -1 for a draw
         self.round_over_time = 0.0
+        self.round_time = 0.0
 
     def read_inputs(self) -> list[ShipInput]:
         if isinstance(self.net, netplay.Host):
@@ -211,6 +213,8 @@ class Game:
 
     def update(self, dt: float) -> None:
         self.frame_dt = dt
+        if self.winner is None:
+            self.round_time += dt
         for ship, ctrl in zip(self.ships, self.read_inputs()):
             if ship.alive:
                 self.bullets.extend(ship.update(dt, ctrl))
@@ -259,6 +263,13 @@ class Game:
                 self.winner = alive[0] if alive else -1
                 if self.winner >= 0:
                     self.wins[self.winner] += 1
+                self.round_finished()
+
+    def round_finished(self) -> None:
+        """Log the round for rebalancing. In LAN play only the host logs it."""
+        mode = "lan" if self.net else ("ai" if self.ai else "local")
+        match_log.append([match_log.entry(mode, self.loadouts, self.winner, self.round_time,
+                                          config_screen.PRICES.version)])
 
     def update_particles(self, dt: float) -> None:
         for p in self.particles:

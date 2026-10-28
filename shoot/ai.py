@@ -3,6 +3,10 @@
 It produces the same ShipInput a player's keyboard would, from what it can see: it turns
 to lead its shots at the opponent, closes in when far away, fires when lined up, and
 sidesteps bullets that are about to hit it. It uses its special ability when it helps.
+
+It only knows what a person on the opponent's screen would: a cloaked ship is out of sight
+(it guesses where it went from where it was last seen), and against Mirror image it picks
+one of the identical ships at random to chase.
 """
 
 import random
@@ -19,6 +23,7 @@ DANGER_TIME = 0.5       # s ahead it looks for incoming bullets
 DANGER_RADIUS = 40      # px; a bullet passing closer than this is a threat
 THINK_INTERVAL = 0.12   # s between decisions, so it reacts like a person, not instantly
 AIM_ERROR = 5           # degrees of random aim error per decision
+BLIND_FIRE_TIME = 1.5   # s it keeps shooting at where it guesses an unseen enemy is
 
 
 def wrapped_delta(src: Vector2, dst: Vector2) -> Vector2:
@@ -43,11 +48,41 @@ class SimpleAI:
         self.think_timer = 0.0
         self.aim_error = 0.0
         self.dodge: int = 0  # -1/+1 turn direction while dodging, 0 when not
+        # What it believes about the enemy: last seen position and velocity.
+        self.seen_pos = Vector2(enemy.pos)
+        self.seen_vel = Vector2()
+        self.unseen_time = 0.0
+        self.pick: int | None = None     # which look-alike it is chasing
+        self.sightings_count = 0
+        self.watched_ability = None      # the enemy ability the above belongs to (new each round)
+
+    def _perceive(self, dt: float) -> None:
+        """Update seen_pos and seen_vel from what is visible this frame."""
+        enemy = self.enemy
+        if enemy.ability is not self.watched_ability:  # new round
+            self.watched_ability, self.pick, self.sightings_count = enemy.ability, None, 0
+            self.unseen_time = 0.0
+        sightings = enemy.ability.sightings(enemy) if enemy.ability else [enemy.pos]
+        if sightings:
+            if self.pick is None or len(sightings) != self.sightings_count:
+                self.pick = random.randrange(len(sightings))  # a look-alike vanished: choose again
+                self.sightings_count = len(sightings)
+            self.seen_pos = Vector2(sightings[self.pick])
+            self.seen_vel = Vector2(enemy.vel)
+            self.unseen_time = 0.0
+        else:
+            # Out of sight: assume it carried on the way it was going.
+            self.unseen_time += dt
+            self.seen_pos += self.seen_vel * dt
+            if settings.WRAPAROUND:
+                self.seen_pos.x %= settings.SCREEN_WIDTH
+                self.seen_pos.y %= settings.SCREEN_HEIGHT
 
     def decide(self, bullets: list[Bullet], dt: float) -> ShipInput:
         me, enemy = self.me, self.enemy
         if not me.alive or not enemy.alive:
             return ShipInput()
+        self._perceive(dt)
 
         self.think_timer -= dt
         if self.think_timer <= 0:
@@ -55,11 +90,12 @@ class SimpleAI:
             self.aim_error = random.uniform(-AIM_ERROR, AIM_ERROR)
             self.dodge = self._dodge_direction(bullets)
 
-        to_enemy = wrapped_delta(me.pos, enemy.pos)
+        to_enemy = wrapped_delta(me.pos, self.seen_pos)
         distance = to_enemy.length()
         aim = self._lead(to_enemy)
         error = angle_diff(me.angle, Vector2(1, 0).angle_to(aim) + self.aim_error)
-        in_range = distance < me.type.bullet_speed * me.type.bullet_lifetime * 0.9
+        in_range = (distance < me.type.bullet_speed * me.type.bullet_lifetime * 0.9
+                    and self.unseen_time < BLIND_FIRE_TIME)
 
         if self.dodge:
             # Turn across the bullet's path and burn.
@@ -78,7 +114,7 @@ class SimpleAI:
     def _lead(self, to_enemy: Vector2) -> Vector2:
         """Where to aim so a bullet meets the enemy, assuming it keeps its velocity."""
         speed = self.me.type.bullet_speed
-        rel_vel = self.enemy.vel - self.me.vel
+        rel_vel = self.seen_vel - self.me.vel
         t = to_enemy.length() / max(speed, 1)
         for _ in range(2):  # refine the time to impact twice; plenty for a game AI
             t = (to_enemy + rel_vel * t).length() / max(speed, 1)
@@ -125,4 +161,6 @@ class SimpleAI:
             return in_range and abs(aim_error) < 20
         if key == "hyperspace":
             return self.dodge != 0 and self.me.hp == 1
+        if key == "cloak":
+            return in_range  # vanish while attacking, so the enemy can't aim back
         return False

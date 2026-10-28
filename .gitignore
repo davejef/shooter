@@ -4,3 +4,6 @@ __pycache__/
 venv/
 players.json
 .idea/
+matches.jsonl
+selfplay.jsonl
+prices_seen.txt

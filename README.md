@@ -68,8 +68,9 @@ Ramming the other ship damages both of you.
 
 Run `python main.py --ai`. You fly Blue with either WASD + Space + Left Shift or the arrow
 keys + Enter + Right Shift; the computer flies Red with Red's last saved ship. It leads its
-shots, closes to about 300 px, sidesteps incoming bullets and uses Shield, Spread shot or
-Hyperspace when they help. To make it easier or harder, change `AIM_ERROR` and
+shots, closes to about 300 px, sidesteps incoming bullets and uses Shield, Spread shot,
+Hyperspace or Cloak when they help. It only sees what a person would: it loses track of a
+cloaked ship and can't tell a Mirror image decoy from the real ship. To make it easier or harder, change `AIM_ERROR` and
 `THINK_INTERVAL` at the top of `shoot/ai.py`.
 
 ## LAN play (two PCs)
@@ -95,11 +96,37 @@ stat, momentum on and off, and each special. Every version is also kept in `pric
 
 ```
 python -m shoot.prices           show the live version and the saved ones
-python -m shoot.prices --use 1   make version 1 live again
+python -m shoot.prices --use 1   bring back version 1's prices (saved as a new version)
 ```
 
 In LAN play the host's prices are used: the host sends its table to the joiner when it
 connects. The setup screen shows which version is in use.
+
+### Automatic rebalancing
+
+The game keeps prices balanced by itself. Every finished round is logged with both ships:
+games people play go to `matches.jsonl` (in LAN play the host logs them), and
+computer-vs-computer games go to `selfplay.jsonl`. Both logs stay on this PC (gitignored).
+
+Once 1000 rounds have been played on the current prices (a round people played counts
+double), the next start of the game fits a model of how much each level step, momentum and
+each special adds to the chance of winning. Anything that wins more than its price says gets
+dearer, and anything that wins less gets cheaper. Each rebalance moves a price only part of
+the way, by at most 15% (or 1 point), and only where the data is clear. The new prices are
+saved as a new version, and the setup screen shows what changed until the next match starts.
+Commit `prices.json` and `prices/` to share them.
+
+People can't play enough games for this on their own, so the computer plays itself:
+
+```
+python -m shoot.selfplay --games 2000              about 10 s per 1000 rounds on 4 cores
+python -m shoot.selfplay --games 1500 --cycles 5   play, rebalance, repeat
+python -m shoot.balance --report                   what each upgrade is worth by the data so far
+```
+
+Self-play uses random builds that spend the whole budget, so every upgrade gets tried in
+many combinations. Prices end up balanced for how the computer plays, which is not quite
+how people play: human rounds count double to pull them back towards that.
 
 ## Tuning
 
@@ -107,7 +134,7 @@ Each stat's range, number of levels and default (`STATS`) are in `shoot/config_s
 and its prices are in `prices.json`. Screen size and the wraparound default are in `shoot/settings.py`.
 
 To add a special ability, subclass `SpecialAbility` in a new module in the `shoot/abilities/` package: set `key`
-and `name` (its price goes in `prices.json`; until then it costs 8), implement `update(ship, dt, held)` and `meter`, and override
+and `name` (its price goes in `prices.json`; until then it costs 8, and rebalancing will price it), implement `update(ship, dt, held)` and `meter`, and override
 `absorbs_hit()`, `draw()` or `visibility()` if needed. Set `network_only = True` for an
 ability that only makes sense with two screens. Other hooks: `images()`, `extra_shots()`, `intercept()`
 and `public_positions()` (see `mirror_image.py`). For a press-to-fire power with a recharge, subclass
