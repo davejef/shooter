@@ -1,24 +1,26 @@
 {
-  "version": 1,
+  "version": 34,
   "budget": 100,
-  "note": "Starting prices: about 4x the old ones, with rising steps. A fresh ship costs exactly 100.",
-  "changes": [],
+  "note": "Rebalanced from 27112 rounds",
+  "changes": [
+    "Bullet speed level 5 2->3"
+  ],
   "stats": {
-    "hit_points": [9, 12, 15, 18],
-    "speed": [3, 3, 4, 4, 5, 5, 6, 6, 7, 7],
-    "turn_speed": [3, 3, 4, 4, 5, 5, 6, 6, 7, 7],
-    "bullet_speed": [3, 3, 4, 4, 5, 5, 6, 6, 7, 7],
-    "fire_rate": [3, 3, 4, 4, 5, 5, 6, 6, 7, 7]
+    "hit_points": [10, 8, 6, 5],
+    "speed": [3, 2, 1, 1, 1, 1, 1, 1, 1, 1],
+    "turn_speed": [6, 5, 3, 3, 2, 2, 2, 1, 1, 1],
+    "bullet_speed": [9, 8, 6, 3, 3, 2, 1, 1, 1, 1],
+    "fire_rate": [4, 4, 2, 2, 1, 2, 1, 1, 1, 1]
   },
   "momentum": {
-    "on": 3,
-    "off": 0
+    "on": 0,
+    "off": 19
   },
   "specials": {
-    "shield": 8,
-    "spread": 8,
-    "hyperspace": 8,
-    "cloak": 8,
-    "mirror": 8
+    "shield": 15,
+    "spread": 13,
+    "hyperspace": 5,
+    "cloak": 20,
+    "mirror": 16
   }
 }

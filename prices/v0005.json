@@ -1,0 +1,52 @@
+{
+  "version": 5,
+  "budget": 100,
+  "note": "Rebalanced from 22988 rounds",
+  "changes": [
+    "Hit points level 4 11->9",
+    "Cloak 12->14",
+    "Mirror image 12->14",
+    "Hit points level 2 12->11",
+    "Hit points level 3 11->10",
+    "Speed level 3 2->1",
+    "Speed level 7 3->2",
+    "Speed level 8 3->2",
+    "Speed level 9 4->3",
+    "Speed level 10 4->3",
+    "Turn speed level 5 4->3",
+    "Turn speed level 8 3->2",
+    "Turn speed level 9 4->3",
+    "Turn speed level 10 4->3",
+    "Bullet speed level 1 6->7",
+    "Bullet speed level 2 6->7",
+    "Bullet speed level 5 4->3",
+    "Bullet speed level 9 4->3",
+    "Bullet speed level 10 4->3",
+    "Fire rate level 3 3->2",
+    "Fire rate level 7 3->2",
+    "Fire rate level 8 3->2",
+    "Fire rate level 9 4->3",
+    "Fire rate level 10 4->3",
+    "Momentum on 0->0, off 0->1",
+    "Shield 12->13",
+    "Spread shot 12->13"
+  ],
+  "stats": {
+    "hit_points": [12, 11, 10, 9],
+    "speed": [4, 3, 1, 2, 2, 2, 2, 2, 3, 3],
+    "turn_speed": [6, 5, 6, 6, 3, 3, 3, 2, 3, 3],
+    "bullet_speed": [7, 7, 6, 5, 3, 2, 3, 3, 3, 3],
+    "fire_rate": [5, 5, 2, 3, 2, 5, 2, 2, 3, 3]
+  },
+  "momentum": {
+    "on": 0,
+    "off": 1
+  },
+  "specials": {
+    "shield": 13,
+    "spread": 13,
+    "hyperspace": 7,
+    "cloak": 14,
+    "mirror": 14
+  }
+}
