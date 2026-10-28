@@ -1,0 +1,28 @@
+{
+  "version": 44,
+  "budget": 100,
+  "note": "Rebalanced from 27287 rounds",
+  "changes": [
+    "Shield 34->35",
+    "Spread shot 6->5",
+    "Cloak 13->14"
+  ],
+  "stats": {
+    "hit_points": [11, 9, 7, 6],
+    "speed": [2, 2, 1, 1, 1, 1, 1, 1, 1, 1],
+    "turn_speed": [3, 3, 1, 2, 2, 1, 1, 1, 1, 1],
+    "bullet_speed": [1, 2, 2, 1, 2, 2, 1, 1, 1, 1],
+    "fire_rate": [3, 3, 2, 2, 1, 2, 1, 1, 1, 1]
+  },
+  "momentum": {
+    "on": 0,
+    "off": 13
+  },
+  "specials": {
+    "shield": 35,
+    "spread": 5,
+    "hyperspace": 4,
+    "cloak": 14,
+    "mirror": 10
+  }
+}
